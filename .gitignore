@@ -1,0 +1,15 @@
+# CERTIFICATES
+*.crt
+*.csr
+*.jks
+*_creds
+*.pem
+*.key
+*.p12
+*.srl
+
+*.properties
+config/*.conf
+
+# JAR
+*.jar

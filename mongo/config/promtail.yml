@@ -1,0 +1,23 @@
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  - job_name: mongo
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          service_name: mongolog
+          job: mongolog
+          __path__: /var/log/mongodb/mongod.log
+  - job_name: result
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          service_name: resultlog
+          job: resultlog
+          __path__: /var/log/result/*.log
