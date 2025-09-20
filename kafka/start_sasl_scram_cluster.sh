@@ -402,17 +402,6 @@ verify_pem_bundle() {
   fi
 }
 
-update_status() {
-  local status="$1"
-  local width=140
-  local dots=$((width - ${#LAST_LINE} - ${#status}))
-  (( dots < 1 )) && dots=1
-  echo -ne "\033[1A\033[2K"
-  echo -ne "\r$LAST_LINE"
-  printf "_%.0s" $(seq 1 $dots)
-  echo "$status"
-}
-
 
 generate_jaas() {
   if [ $# -ne 2 ]; then
@@ -452,8 +441,19 @@ clean_all() {
 }
 
 hr() {
-    local char="${1:--}"
-    printf '%*s\n' "$(tput cols)" '' | tr ' ' "$char"
+  local char="${1:--}"
+  printf '%*s\n' "$(tput cols)" '' | tr ' ' "$char"
+}
+
+update_status() {
+  local status="$1"
+  local width=$(tput cols)-2
+  local dots=$((width - ${#LAST_LINE} - ${#status}))
+  (( dots < 1 )) && dots=1
+  echo -ne "\033[1A\033[2K"
+  echo -ne "\r$LAST_LINE"
+  printf "_%.0s" $(seq 1 $dots)
+  echo "$status"
 }
 
 
