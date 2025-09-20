@@ -1,5 +1,25 @@
 #!/usr/bin/env bash
 set -euo pipefail
+print_frame() {
+    local lines=("$@")
+    local max_len=0
+
+    # Find the maximum line length
+    for line in "${lines[@]}"; do
+        (( ${#line} > max_len )) && max_len=${#line}
+    done
+
+    # Print top border
+    printf '%*s\n' $((max_len + 4)) '' | tr ' ' '*'
+
+    # Print each line with side borders
+    for line in "${lines[@]}"; do
+        printf "* %-${max_len}s *\n" "$line"
+    done
+
+    # Print bottom border
+    printf '%*s\n' $((max_len + 4)) '' | tr ' ' '*'
+}
 
 export PATH=$PATH:/home/takashitanaka/.vscode/extensions/redhat.java-1.45.0-linux-x64/jre/21.0.8-linux-x86_64/bin
 LAST_LINE=""
@@ -10,8 +30,17 @@ export DIR_JAR=$WORKDIR/jar
 export DIR_CONFIG=$WORKDIR/config
 export DIR_CERTIFICATES=$WORKDIR/certificates
 
-echo "Working dir        : ${WORKDIR}"
-echo "Certificates       : ${DIR_CERTIFICATES}"
+lines=(
+    "MICROSTACK - KAFKA KRAFT MODE STARTER"
+    "Created by         : HENDRY TANAKA"
+    "Get it touch       : hendrytanaka10@icloud.com"
+    "Working dir        : ${WORKDIR}"
+    "Certificates       : ${DIR_CERTIFICATES}"
+    "Properties         : ${DIR_PROPERTIES}"
+    "JAR                : ${DIR_JAR}"
+    "CONFIG             : ${DIR_CONFIG}"
+)
+print_frame "${lines[@]}"
 
 BROKER_PASS=brokerpass
 CLIENT_PASS=clientpass
@@ -456,8 +485,6 @@ update_status() {
   echo "$status"
 }
 
-
-hr "="
 clean_all
 generate_ca
 for b in kafka-broker-1 kafka-broker-2 kafka-broker-3; do
