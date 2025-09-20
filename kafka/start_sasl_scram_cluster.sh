@@ -2,7 +2,7 @@
 set -euo pipefail
 
 export PATH=$PATH:/home/takashitanaka/.vscode/extensions/redhat.java-1.45.0-linux-x64/jre/21.0.8-linux-x86_64/bin
-
+LAST_LINE=""
 CLUSTER_ID=xwKCEeWJToei3os4N3JYfQ
 WORKDIR=${PWD}
 export DIR_PROPERTIES=$WORKDIR/properties
@@ -26,12 +26,17 @@ rm -rf "${DIR_CONFIG}/*.conf"
 
 mkdir -p "${CA_DIR}" "${CLIENT_DIR}"
 
+custom_print() {
+  echo "$@"
+  LAST_LINE="$*"
+}
+
 generate_ca() {
-  echo "🔑 Generating new Cluster CA..."
+  custom_print "🔑 Generating new Cluster CA"
   openssl req -new -x509 -keyout "${CA_DIR}/ca.key" \
     -out "${CA_DIR}/ca.crt" -days 3650 -nodes \
-    -subj "/CN=Kafka-Cluster-CA/OU=Dev/O=Company/L=City,ST=State,C=ID"
-  hr "="
+    -subj "/CN=Kafka-Cluster-CA/OU=Dev/O=Company/L=City,ST=State,C=ID" >/dev/null 2>&1
+  update_status "✅ OK"
 }
 
 generate_broker_cert() {
@@ -40,101 +45,150 @@ generate_broker_cert() {
   rm -rf "${dir}"
   mkdir -p "${dir}"
 
-  echo "🔑 Keystore for ${broker}"
+  custom_print "🔑 Generating keystore for ${broker}"
   keytool -genkeypair \
     -alias "${broker}" -keyalg RSA -keysize 2048 \
     -keystore "${dir}/kafka.${broker}.keystore.jks" \
     -storepass "${BROKER_PASS}" -keypass "${BROKER_PASS}" \
     -dname "CN=${broker}, OU=Dev, O=Company, L=City, ST=State, C=ID" \
-    -ext SAN=DNS:kafka-broker-1,DNS:kafka-broker-2,DNS:kafka-broker-3,DNS:localhost,IP:127.0.0.1
-    
+    -ext SAN=DNS:kafka-broker-1,DNS:kafka-broker-2,DNS:kafka-broker-3,DNS:localhost,IP:127.0.0.1 >/dev/null 2>&1
+  update_status "✅ OK"
 
+  custom_print "🔑 Generating keystore CSR for ${broker}"
   keytool -certreq -alias "${broker}" -file "${dir}/${broker}.csr" \
     -keystore "${dir}/kafka.${broker}.keystore.jks" \
-    -storepass "${BROKER_PASS}"
+    -storepass "${BROKER_PASS}" >/dev/null 2>&1
+  update_status "✅ OK"
 
+  custom_print "🔑 Signing keystore CSR for ${broker}"
   openssl x509 -req -in "${dir}/${broker}.csr" \
     -CA "${CA_DIR}/ca.crt" -CAkey "${CA_DIR}/ca.key" \
-    -out "${dir}/${broker}.crt" -days 365 -CAcreateserial -sha256
+    -out "${dir}/${broker}.crt" -days 365 -CAcreateserial -sha256 >/dev/null 2>&1
+  update_status "✅ OK"
 
+  custom_print "🔑 Signing keystore CA for ${broker}"
   keytool -import -trustcacerts -alias CARoot \
     -file "${CA_DIR}/ca.crt" \
     -keystore "${dir}/kafka.${broker}.keystore.jks" \
-    -storepass "${BROKER_PASS}" -noprompt
+    -storepass "${BROKER_PASS}" -noprompt >/dev/null 2>&1
+  update_status "✅ OK"
 
+  custom_print "🔑 Importing keystore CA for ${broker}"
   keytool -import -alias "${broker}" -file "${dir}/${broker}.crt" \
     -keystore "${dir}/kafka.${broker}.keystore.jks" \
-    -storepass "${BROKER_PASS}" -noprompt
+    -storepass "${BROKER_PASS}" -noprompt >/dev/null 2>&1
+  update_status "✅ OK"
 
+  custom_print "🔑 Importing keystore CARoot for ${broker}"
   keytool -import -file "${CA_DIR}/ca.crt" -alias CARoot \
     -keystore "${dir}/kafka.${broker}.truststore.jks" \
-    -storepass "${BROKER_PASS}" -noprompt
+    -storepass "${BROKER_PASS}" -noprompt >/dev/null 2>&1
+  update_status "✅ OK"
 
   echo "${BROKER_PASS}" > "${dir}/${broker}_keystore_creds"
   echo "${BROKER_PASS}" > "${dir}/${broker}_sslkey_creds"
   echo "${BROKER_PASS}" > "${dir}/${broker}_truststore_creds"
 
+  custom_print "🔑 Updating certificates permission for ${broker}"
   chmod 600 "${dir}"/*_creds
-  hr "="
+  update_status "✅ OK"
 }
 
 generate_client_cert() {
-  echo "🔑 Client keystore"
+  custom_print "🔑 Client keystore - generate keystore"
   keytool -genkeypair \
     -alias kafka-client -keyalg RSA -keysize 2048 \
     -keystore "${CLIENT_DIR}/kafka.client.keystore.jks" \
     -storepass "${CLIENT_PASS}" -keypass "${CLIENT_PASS}" \
-    -dname "CN=kafka-client, OU=Dev, O=Company, L=City, ST=State, C=ID"
+    -dname "CN=kafka-client, OU=Dev, O=Company, L=City, ST=State, C=ID" >/dev/null 2>&1
+  update_status "✅ OK"
 
+  custom_print "🔑 Client keystore - certificate request keystore"
   keytool -certreq -alias kafka-client \
     -file "${CLIENT_DIR}/kafka-client.csr" \
     -keystore "${CLIENT_DIR}/kafka.client.keystore.jks" \
-    -storepass "${CLIENT_PASS}"
+    -storepass "${CLIENT_PASS}" >/dev/null 2>&1
+  update_status "✅ OK"
 
+  custom_print "🔑 Client keystore - creating client csr"
   openssl x509 -req -in "${CLIENT_DIR}/kafka-client.csr" \
     -CA "${CA_DIR}/ca.crt" -CAkey "${CA_DIR}/ca.key" \
-    -out "${CLIENT_DIR}/kafka-client.crt" -days 365 -CAcreateserial -sha256
+    -out "${CLIENT_DIR}/kafka-client.crt" -days 365 -CAcreateserial -sha256 >/dev/null 2>&1
+  update_status "✅ OK"
 
+  custom_print "🔑 Client keystore - add ca-root on keystore"
   keytool -import -trustcacerts -alias CARoot \
     -file "${CA_DIR}/ca.crt" \
     -keystore "${CLIENT_DIR}/kafka.client.keystore.jks" \
-    -storepass "${CLIENT_PASS}" -noprompt
+    -storepass "${CLIENT_PASS}" -noprompt >/dev/null 2>&1
+  update_status "✅ OK"
 
+  custom_print "🔑 Client keystore - create client crt"
   keytool -import -alias kafka-client \
     -file "${CLIENT_DIR}/kafka-client.crt" \
     -keystore "${CLIENT_DIR}/kafka.client.keystore.jks" \
-    -storepass "${CLIENT_PASS}" -noprompt
+    -storepass "${CLIENT_PASS}" -noprompt >/dev/null 2>&1
+  update_status "✅ OK"
 
+  custom_print "🔑 Client keystore - sign crt with ca-root"
   keytool -import -file "${CA_DIR}/ca.crt" -alias CARoot \
     -keystore "${CLIENT_DIR}/kafka.client.truststore.jks" \
-    -storepass "${CLIENT_PASS}" -noprompt
+    -storepass "${CLIENT_PASS}" -noprompt >/dev/null 2>&1
+  update_status "✅ OK"
 
-  hr "="
+  custom_print "🔑 Client keystore - create client p12"
+  keytool -importkeystore \
+    -srckeystore "${CLIENT_DIR}/kafka.client.keystore.jks" \
+    -srcstoretype JKS \
+    -srcstorepass "${CLIENT_PASS}" \
+    -destkeystore "${CLIENT_DIR}/kafka.client.p12" \
+    -deststoretype PKCS12 \
+    -deststorepass "${CLIENT_PASS}" \
+    -srcalias kafka-client \
+    -destalias kafka-client \
+    -srckeypass "${CLIENT_PASS}" \
+    -destkeypass "${CLIENT_PASS}" \
+    -noprompt >/dev/null 2>&1
+  update_status "✅ OK"
+
+  custom_print "🔑 Client keystore - extract client key"
+  openssl pkcs12 -in "${CLIENT_DIR}/kafka.client.p12" \
+    -nodes -nocerts \
+    -out "${CLIENT_DIR}/kafka-client.key" \
+    -passin pass:"${CLIENT_PASS}" >/dev/null 2>&1
+  update_status "✅ OK"
+
+  custom_print "🔑 Client keystore - certificate client pem"
+  openssl pkcs12 -in "${CLIENT_DIR}/kafka.client.p12" \
+    -nokeys \
+    -out "${CLIENT_DIR}/kafka-client.pem" \
+    -passin pass:"${CLIENT_PASS}" >/dev/null 2>&1
+  update_status "✅ OK"
 }
 
 export_pem_bundle() {
-  echo "🔑 Generating PEM CA bundle..."
   rm -rf "${SSL_DIR}/pem"
   mkdir -p "${SSL_DIR}/pem"
 
   for broker in kafka-broker-1 kafka-broker-2 kafka-broker-3; do
+    custom_print "🔑 Generating PEM CA bundle for ${broker}"
     keytool -exportcert \
       -keystore "${SSL_DIR}/${broker}/kafka.${broker}.keystore.jks" \
       -storepass "${BROKER_PASS}" \
       -alias "${broker}" -rfc \
-      -file "${SSL_DIR}/pem/${broker}.pem"
+      -file "${SSL_DIR}/pem/${broker}.pem" >/dev/null 2>&1
+    update_status "✅ OK"
   done
 
   rm -f "${SSL_DIR}/pem/kafka-cluster-ca.pem"
 
   cat "${SSL_DIR}"/pem/kafka-broker-*.pem > "${SSL_DIR}/pem/kafka-cluster-ca.pem"
 
-  echo "PEM bundle at ${SSL_DIR}/pem/kafka-cluster-ca.pem"
-  hr "="
+  # echo "PEM bundle at ${SSL_DIR}/pem/kafka-cluster-ca.pem"
 }
 
 clean_ports() {
-  echo "🚮 Cleaning used ports..."
+  custom_print "🚮 Cleaning used ports"
   for port in 19094 19095 19096 9093 9101 9102 9103 19084 29084 39084 8080 8081; do
     pid=$(ss -ltnp 2>/dev/null | grep ":$port " | awk -F',' '{print $2}' | awk '{print $1}' || true)
     [ -z "$pid" ] && pid=$(lsof -t -i:$port 2>/dev/null || true)
@@ -144,21 +198,20 @@ clean_ports() {
       kill -9 "$pid" || true
     fi
   done
-  hr "="
+  update_status "✅ OK"
 }
 
 
 start_docker() {
-  echo "📦 Starting Service Group..."
-  docker-compose -p "message-broker" -f "$PWD/docker-compose-scram.yml" up -d --remove-orphans
-  hr "="
+  custom_print "📦 Starting Service Group"
+  docker-compose -p "message-broker" -f "$PWD/docker-compose-scram.yml" up -d --remove-orphans 2>/dev/null
+  update_status "✅ OK"
 }
 
 format_kafka() {
-  echo "📦 Formatting Kafka storage..."
   for broker in 1 2 3; do
-    props="${DIR_PROPERTIES}/storage-${broker}.properties"
-    : > "$props"
+    custom_print "📦 Formatting Kafka storage [kafka-broker-${broker}]" 
+    props="${DIR_PROPERTIES}/storage-${broker}.properties" : > "$props"
 
     echo "process.roles=broker,controller" >> "$props"
     echo "node.id=${broker}" >> "$props"
@@ -169,20 +222,21 @@ format_kafka() {
     echo "log.dirs=/var/lib/kafka/data" >> "$props"
 
 
-    docker run --rm \
+    docker run --rm -i \
       -v "${DIR_CERTIFICATES}/kafka-broker-${broker}:/etc/kafka/secrets" \
       -v "${props}:/etc/kafka/storage.properties" \
       confluentinc/cp-kafka:latest \
       kafka-storage format \
         --ignore-formatted \
         --cluster-id "$CLUSTER_ID" \
-        --config /etc/kafka/storage.properties
+        --config /etc/kafka/storage.properties 2>/dev/null || true
+    echo -ne "\033[1A\033[2K"
+    update_status "✅ OK"
   done
-  hr "="
 }
 
 prepare_kafka_properties() {
-  echo "📝 Prepare server properties"
+  custom_print "📝 Prepare server properties"
   local dir="${DIR_PROPERTIES}"
   
   mkdir -p "${dir}"
@@ -227,12 +281,10 @@ prepare_kafka_properties() {
 
   done
 
-  hr "="
+  update_status "✅ OK"
 }
 
 prepare_client_properties() {
-  echo "📝 Prepare client properties"
-
   props="${DIR_PROPERTIES}/client.properties"
   rm -f "$props"
 
@@ -246,7 +298,9 @@ prepare_client_properties() {
   echo 'sasl.jaas.config=org.apache.kafka.common.security.scram.ScramLoginModule required username="kafkabroker" password="confluent";' >> "$props"
   
   for broker in 1 2 3; do
-    docker cp "${props}" $(docker ps -qf "name=kafka-broker-${broker}"):/etc/kafka/properties/client-cli.properties
+    custom_print "📝 Prepare client properties for [kafka-broker-${broker}]"
+    docker cp "${props}" $(docker ps -qf "name=kafka-broker-${broker}"):/etc/kafka/properties/client-cli.properties  >/dev/null 2>&1
+    update_status "✅ OK"
   done
 
   # docker cp "${props}" $(docker ps -qf "name=control-center"):/etc/kafka/config/client-cli.properties
@@ -280,76 +334,83 @@ prepare_control_properties() {
 }
 
 create_test_topic() {
-  echo "📝 Create test topic..."
+  custom_print "📝 Create test topic"
   docker exec -e KAFKA_OPTS="" kafka-broker-1 kafka-topics \
     --bootstrap-server kafka-broker-1:9092 \
     --command-config /etc/kafka/properties/client-cli.properties \
     --create \
     --topic test.internal \
     --partitions 1 \
-    --replication-factor 3
+    --replication-factor 3 2>&1 || true
+  echo -ne "\033[1A\033[2K"
+  echo -ne "\033[1A\033[2K"
+  update_status "✅ OK"
 
-  echo "📝 Check for test topic..."
+  custom_print "📝 Check for test topic"
   docker exec -e KAFKA_OPTS="" kafka-broker-1 kafka-topics \
-  --bootstrap-server kafka-broker-1:29092 \
-  --list
+    --bootstrap-server kafka-broker-1:29092 \
+    --list 2>&1 || true
+  echo -ne "\033[1A\033[2K"
+  update_status "✅ OK"
+  
 }
 
 create_scram_users() {
-  echo "👤 Creating SCRAM users..."
+  custom_print "👤 Creating SCRAM users"
   docker exec -e KAFKA_OPTS="" kafka-broker-1 kafka-configs \
     --bootstrap-server kafka-broker-1:29092 \
     --alter \
     --add-config 'SCRAM-SHA-512=[password=confluent]' \
     --entity-type users \
-    --entity-name kafkabroker
+    --entity-name kafkabroker 2>&1 || true
+  echo -ne "\033[1A\033[2K"
+  update_status "✅ OK"
 }
 
 verify_broker_cert() {
   local broker=$1
   local dir="${SSL_DIR}/${broker}"
-  echo "🔍 Verifying keystore for ${broker}..."
+  custom_print "🔍 Verifying keystore for ${broker}"
 
-  echo "📋 Keystore content:"
   keytool -list -v \
       -keystore "${dir}/kafka.${broker}.keystore.jks" \
       -storepass "${BROKER_PASS}" \
-      -alias "${broker}" || true
-
-  echo "📋 Certificate SANs:"
-  keytool -printcert -v -file "${dir}/${broker}.crt" || true
-
-
-  echo "✅ ${broker} certificate OK"
-  hr "="
+      -alias "${broker}" >/dev/null 2>&1 || true
+  update_status "✅ OK"
+  # keytool -printcert -v -file "${dir}/${broker}.crt" >/dev/null 2>&1 || true
 }
 
 verify_client_cert() {
-  echo "🔍 Verifying client keystore..."
-
-  echo "📋 Keystore content:"
+  custom_print "🔍 Verifying client keystore"
   keytool -list -v \
     -keystore "${CLIENT_DIR}/kafka.client.keystore.jks" \
     -storepass "${CLIENT_PASS}" \
-    -alias kafka-client || true
+    -alias kafka-client >/dev/null 2>&1 || true
+  update_status "✅ OK"
 
-  echo "📋 Certificate SANs:"
-  keytool -printcert -v -file "${CLIENT_DIR}/kafka-client.crt" || true
-
-  echo "✅ Client certificate OK"
-  hr "="
+  # keytool -printcert -v -file "${CLIENT_DIR}/kafka-client.crt" >/dev/null 2>&1 || true
 }
 
 
 verify_pem_bundle() {
-  echo "🔍 Verifying PEM bundle..."
+  custom_print "🔍 Verifying PEM bundle"
   if [ -f "${SSL_DIR}/pem/kafka-cluster-ca.pem" ]; then
-    openssl x509 -in "${SSL_DIR}/pem/kafka-cluster-ca.pem" -text -noout | grep -E 'Subject:|Issuer:|DNS:|IP Address:'
-    echo "✅ PEM bundle OK"
+    openssl x509 -in "${SSL_DIR}/pem/kafka-cluster-ca.pem" -text -noout | grep -E 'Subject:|Issuer:|DNS:|IP Address:' >/dev/null 2>&1
+    update_status "✅ OK"
   else
-    echo "❌ PEM bundle not found!"
+    update_status "❌ PEM bundle not found!"
   fi
-  hr "="
+}
+
+update_status() {
+  local status="$1"
+  local width=140
+  local dots=$((width - ${#LAST_LINE} - ${#status}))
+  (( dots < 1 )) && dots=1
+  echo -ne "\033[1A\033[2K"
+  echo -ne "\r$LAST_LINE"
+  printf "_%.0s" $(seq 1 $dots)
+  echo "$status"
 }
 
 
@@ -363,7 +424,7 @@ generate_jaas() {
   local pass="$2"
   local output="${DIR_CONFIG}/kafka_server_jaas.conf"
 
-  echo "📝 Generating JAAS config for broker with user=$user"
+  custom_print "📝 Generating JAAS config for broker with user=$user"
 
   mkdir -p "${DIR_CONFIG}"
 
@@ -381,13 +442,13 @@ generate_jaas() {
     echo "};"
   } > "$output"
 
-  hr "="
+  update_status "✅ OK"
 }
 
 clean_all() {
-  echo "🧹 Cleaning up containers and volumes..."
-  docker-compose -p "message-broker" -f "$PWD/docker-compose-scram.yml" down -v || true
-  hr "="
+  custom_print "🧹 Cleaning up containers and volumes"
+  docker-compose -p "message-broker" -f "$PWD/docker-compose-scram.yml" down -v >/dev/null 2>&1 || true
+  update_status "✅ OK"
 }
 
 hr() {
