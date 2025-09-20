@@ -31,7 +31,7 @@ export DIR_CONFIG=$WORKDIR/config
 export DIR_CERTIFICATES=$WORKDIR/certificates
 
 lines=(
-    "MICROSTACK - KAFKA KRAFT MODE STARTER"
+    "Apps Name          : MICROSTACK - KAFKA KRAFT MODE STARTER"
     "Created by         : HENDRY TANAKA"
     "Get it touch       : hendrytanaka10@icloud.com"
     "Working dir        : ${WORKDIR}"
