@@ -452,7 +452,7 @@ update_status() {
   (( dots < 1 )) && dots=1
   echo -ne "\033[1A\033[2K"
   echo -ne "\r$LAST_LINE"
-  printf "_%.0s" $(seq 1 $dots)
+  printf ".%.0s" $(seq 1 $dots)
   echo "$status"
 }
 
