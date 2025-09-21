@@ -500,7 +500,7 @@ hr() {
 
 update_status() {
   local status="$1"
-  local width=$(tput cols)-2
+  local width=($(tput cols)-2) / 2
   local dots=$((width - ${#LAST_LINE} - ${#status}))
   (( dots < 1 )) && dots=1
   echo -ne "\033[1A\033[2K"

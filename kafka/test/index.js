@@ -10,13 +10,15 @@ const kafka = new Kafka({
   brokers: ["localhost:19094", "localhost:29094", "localhost:39094"],
   ssl: {
     rejectUnauthorized: false,
-    ca: [fs.readFileSync(path.join(certsDir, "ca/ca.crt"), "utf-8")],
+    ca: [
+      fs.readFileSync(path.join(certsDir, "pem/kafka-cluster-ca.pem"), "utf-8"),
+    ],
     cert: fs.readFileSync(
       path.join(certsDir, "client/kafka-client.pem"),
       "utf-8"
     ),
     key: fs.readFileSync(
-      path.join(certsDir, "client/kafka-client.key"),
+      path.join(certsDir, "client/kafka-client.key.pem"),
       "utf-8"
     ),
   },
@@ -25,6 +27,7 @@ const kafka = new Kafka({
     username: "kafkabroker",
     password: "confluent",
   },
+  enforceRequestTimeout: true,
 });
 
 async function run() {
