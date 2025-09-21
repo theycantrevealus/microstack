@@ -23,8 +23,10 @@ print_frame() {
 
 export PATH=$PATH:/home/takashitanaka/.vscode/extensions/redhat.java-1.45.0-linux-x64/jre/21.0.8-linux-x86_64/bin
 LAST_LINE=""
-CLUSTER_ID=xwKCEeWJToei3os4N3JYfQ
+# CLUSTER_ID=xwKCEeWJToei3os4N3JYfQ
+export CLUSTER_ID=$(docker run --rm confluentinc/cp-kafka:latest kafka-storage random-uuid)
 WORKDIR=${PWD}
+TARGET_COMPOSE="docker-compose-scram.yml"
 export DIR_PROPERTIES=$WORKDIR/properties
 export DIR_JAR=$WORKDIR/jar
 export DIR_CONFIG=$WORKDIR/config
@@ -42,8 +44,8 @@ lines=(
 )
 print_frame "${lines[@]}"
 
-BROKER_PASS=brokerpass
-CLIENT_PASS=clientpass
+export BROKER_PASS=brokerpass
+export CLIENT_PASS=clientpass
 
 SSL_DIR=${DIR_CERTIFICATES}
 CA_DIR=${SSL_DIR}/ca
@@ -193,6 +195,10 @@ generate_client_cert() {
     -out "${CLIENT_DIR}/kafka-client.pem" \
     -passin pass:"${CLIENT_PASS}" >/dev/null 2>&1
   update_status "✅ OK"
+
+  custom_print "🔑 Client keystore - format to PKCS8"
+  openssl pkcs8 -topk8 -inform PEM -outform PEM -in "${CLIENT_DIR}/kafka-client.key" -out "${CLIENT_DIR}/kafka-client.key.pem" -nocrypt
+  update_status "✅ OK"
 }
 
 export_pem_bundle() {
@@ -233,7 +239,7 @@ clean_ports() {
 
 start_docker() {
   custom_print "📦 Starting Service Group"
-  docker-compose -p "message-broker" -f "$PWD/docker-compose-scram.yml" up -d --remove-orphans 2>/dev/null
+  docker-compose -p "message-broker" -f "$PWD/$TARGET_COMPOSE" up -d --remove-orphans 2>/dev/null
   update_status "✅ OK"
 }
 
@@ -370,7 +376,7 @@ create_test_topic() {
     --create \
     --topic test.internal \
     --partitions 1 \
-    --replication-factor 3 2>&1 || true
+    --replication-factor 3 2>&1 | grep -v '^WARN' || true
   echo -ne "\033[1A\033[2K"
   echo -ne "\033[1A\033[2K"
   update_status "✅ OK"
@@ -465,7 +471,25 @@ generate_jaas() {
 
 clean_all() {
   custom_print "🧹 Cleaning up containers and volumes"
-  docker-compose -p "message-broker" -f "$PWD/docker-compose-scram.yml" down -v >/dev/null 2>&1 || true
+  docker-compose -p "message-broker" -f "$PWD/$TARGET_COMPOSE" down -v >/dev/null 2>&1 || true
+  update_status "✅ OK"
+}
+
+reset_cluster() {
+  custom_print "🧹 Resetting entire Kafka cluster (data + certs + volumes)"
+
+  # 1️⃣ Stop containers & remove volumes
+  docker-compose -p "message-broker" -f "$PWD/$TARGET_COMPOSE" down -v >/dev/null 2>&1 || true
+
+  # 2️⃣ Remove host-mounted Kafka data directories
+  for broker in 1 2 3; do
+    local data_dir="${PWD}/kafka-data/broker-${broker}"  # adjust path if different
+    if [ -d "$data_dir" ]; then
+      rm -rf "$data_dir"
+      echo "🗑️  Removed old data directory: $data_dir"
+    fi
+  done
+
   update_status "✅ OK"
 }
 
@@ -486,6 +510,7 @@ update_status() {
 }
 
 clean_all
+reset_cluster
 generate_ca
 for b in kafka-broker-1 kafka-broker-2 kafka-broker-3; do
   generate_broker_cert "${b}"
