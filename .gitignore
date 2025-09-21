@@ -13,3 +13,5 @@ config/*.conf
 
 # JAR
 *.jar
+node_modules
+backup_*.sh
