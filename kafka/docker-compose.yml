@@ -1,0 +1,334 @@
+networks:
+  kafka-cluster-network:
+    driver: bridge
+
+services:
+  kafka-broker-1:
+    image: confluentinc/cp-kafka:latest
+    container_name: kafka-broker-1
+    hostname: kafka-broker-1
+    networks:
+      - kafka-cluster-network
+    ports:
+      # - "19094:9092"
+      # - "29092:29092"
+      # - "9093:9093"
+      # - "9401:9401"
+      - "19094:9094" # external SASL_SSL
+      - "19192:29092" # external PLAINTEXT (optional)
+      - "9401:9401" # JMX
+    restart: on-failure
+    stop_grace_period: 30s
+    environment:
+      KAFKA_HEAP_OPTS: "-Xms1G -Xmx2G"
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: SASL_SSL://:9092,PLAINTEXT://:29092,CONTROLLER://:9093,EXTERNAL://:9094
+      KAFKA_ADVERTISED_LISTENERS: SASL_SSL://kafka-broker-1:9092,PLAINTEXT://kafka-broker-1:29092,EXTERNAL://localhost:19094
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: SASL_SSL:SASL_SSL,PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT,EXTERNAL:SASL_SSL
+      KAFKA_INTER_BROKER_LISTENER_NAME: SASL_SSL
+
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka-broker-1:9093,2@kafka-broker-2:9093,3@kafka-broker-3:9093
+      CLUSTER_ID: ${CLUSTER_ID}
+
+      KAFKA_SASL_ENABLED_MECHANISMS: SCRAM-SHA-512
+      KAFKA_SASL_MECHANISM_INTER_BROKER_PROTOCOL: SCRAM-SHA-512
+      KAFKA_DEFAULT_USER: kafkabroker
+      KAFKA_DEFAULT_PASSWORD: confluent
+
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_MIN_INSYNC_REPLICAS: 1
+
+      KAFKA_SSL_KEYSTORE_FILENAME: kafka.kafka-broker-1.keystore.jks
+      KAFKA_SSL_KEYSTORE_CREDENTIALS: kafka-broker-1_keystore_creds
+      KAFKA_SSL_KEY_CREDENTIALS: kafka-broker-1_sslkey_creds
+      KAFKA_SSL_TRUSTSTORE_FILENAME: kafka.kafka-broker-1.truststore.jks
+      KAFKA_SSL_TRUSTSTORE_CREDENTIALS: kafka-broker-1_truststore_creds
+      KAFKA_SSL_CLIENT_AUTH: requested
+      KAFKA_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM: HTTPS
+      KAFKA_OVERRIDE_INTER_BROKER_LISTENER_NAME: SASL_SSL
+      KAFKA_JMX_OPTS: ""
+      KAFKA_JMX_PORT: ""
+      KAFKA_OPTS: "-Djava.security.auth.login.config=/etc/kafka/config/kafka_server_jaas.conf -javaagent:/opt/jmx/jmx_prometheus_javaagent-1.4.0.jar=9401:/opt/jmx/jmx.kafka.yml"
+
+    volumes:
+      - ${DIR_PROPERTIES}:/etc/kafka/properties
+      - ${DIR_CERTIFICATES}/kafka-broker-1:/etc/kafka/secrets
+      - ${DIR_JAR}/jmx_prometheus_javaagent-1.4.0.jar:/opt/jmx/jmx_prometheus_javaagent-1.4.0.jar
+      - ${DIR_CONFIG}/kafka_server_jaas.conf:/etc/kafka/config/kafka_server_jaas.conf
+      - ${DIR_CONFIG}/jmx.kafka.yml:/opt/jmx/jmx.kafka.yml
+
+  kafka-broker-2:
+    image: confluentinc/cp-kafka:latest
+    container_name: kafka-broker-2
+    hostname: kafka-broker-2
+    networks:
+      - kafka-cluster-network
+    ports:
+      - "29094:9094" # external SASL_SSL
+      - "29192:29092" # external PLAINTEXT (optional)
+      - "9402:9402" # JMX
+    restart: on-failure
+    stop_grace_period: 30s
+    environment:
+      KAFKA_HEAP_OPTS: "-Xms1G -Xmx2G"
+      KAFKA_NODE_ID: 2
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: SASL_SSL://:9092,PLAINTEXT://:29092,CONTROLLER://:9093,EXTERNAL://:9094
+      KAFKA_ADVERTISED_LISTENERS: SASL_SSL://kafka-broker-2:9092,PLAINTEXT://kafka-broker-2:29092,EXTERNAL://localhost:29094
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: SASL_SSL:SASL_SSL,PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT,EXTERNAL:SASL_SSL
+      KAFKA_INTER_BROKER_LISTENER_NAME: SASL_SSL
+
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka-broker-1:9093,2@kafka-broker-2:9093,3@kafka-broker-3:9093
+      CLUSTER_ID: ${CLUSTER_ID}
+
+      KAFKA_SASL_ENABLED_MECHANISMS: SCRAM-SHA-512
+      KAFKA_SASL_MECHANISM_INTER_BROKER_PROTOCOL: SCRAM-SHA-512
+      KAFKA_DEFAULT_USER: kafkabroker
+      KAFKA_DEFAULT_PASSWORD: confluent
+
+      KAFKA_SSL_KEYSTORE_FILENAME: kafka.kafka-broker-2.keystore.jks
+      KAFKA_SSL_KEYSTORE_CREDENTIALS: kafka-broker-2_keystore_creds
+      KAFKA_SSL_KEY_CREDENTIALS: kafka-broker-2_sslkey_creds
+      KAFKA_SSL_TRUSTSTORE_FILENAME: kafka.kafka-broker-2.truststore.jks
+      KAFKA_SSL_TRUSTSTORE_CREDENTIALS: kafka-broker-2_truststore_creds
+      KAFKA_SSL_CLIENT_AUTH: requested
+      KAFKA_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM: HTTPS
+      KAFKA_OVERRIDE_INTER_BROKER_LISTENER_NAME: SASL_SSL
+      KAFKA_JMX_OPTS: ""
+      KAFKA_JMX_PORT: ""
+      KAFKA_OPTS: "-Djava.security.auth.login.config=/etc/kafka/config/kafka_server_jaas.conf -javaagent:/opt/jmx/jmx_prometheus_javaagent-1.4.0.jar=9402:/opt/jmx/jmx.kafka.yml"
+    volumes:
+      - ${DIR_PROPERTIES}:/etc/kafka/properties
+      - ${DIR_CERTIFICATES}/kafka-broker-2:/etc/kafka/secrets
+      - ${DIR_JAR}/jmx_prometheus_javaagent-1.4.0.jar:/opt/jmx/jmx_prometheus_javaagent-1.4.0.jar
+      - ${DIR_CONFIG}/kafka_server_jaas.conf:/etc/kafka/config/kafka_server_jaas.conf
+      - ${DIR_CONFIG}/jmx.kafka.yml:/opt/jmx/jmx.kafka.yml
+
+  kafka-broker-3:
+    image: confluentinc/cp-kafka:latest
+    container_name: kafka-broker-3
+    hostname: kafka-broker-3
+    networks:
+      - kafka-cluster-network
+    ports:
+      - "39094:9094"
+      - "39192:29092"
+      - "9403:9403"
+    restart: on-failure
+    stop_grace_period: 30s
+    environment:
+      KAFKA_HEAP_OPTS: "-Xms1G -Xmx2G"
+      KAFKA_NODE_ID: 3
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: SASL_SSL://:9092,PLAINTEXT://:29092,CONTROLLER://:9093,EXTERNAL://:9094
+      KAFKA_ADVERTISED_LISTENERS: SASL_SSL://kafka-broker-3:9092,PLAINTEXT://kafka-broker-3:29092,EXTERNAL://localhost:39094
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: SASL_SSL:SASL_SSL,PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT,EXTERNAL:SASL_SSL
+      KAFKA_INTER_BROKER_LISTENER_NAME: SASL_SSL
+
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka-broker-1:9093,2@kafka-broker-2:9093,3@kafka-broker-3:9093
+      CLUSTER_ID: ${CLUSTER_ID}
+
+      KAFKA_SASL_ENABLED_MECHANISMS: SCRAM-SHA-512
+      KAFKA_SASL_MECHANISM_INTER_BROKER_PROTOCOL: SCRAM-SHA-512
+      KAFKA_DEFAULT_USER: kafkabroker
+      KAFKA_DEFAULT_PASSWORD: confluent
+
+      KAFKA_SSL_KEYSTORE_FILENAME: kafka.kafka-broker-3.keystore.jks
+      KAFKA_SSL_KEYSTORE_CREDENTIALS: kafka-broker-3_keystore_creds
+      KAFKA_SSL_KEY_CREDENTIALS: kafka-broker-3_sslkey_creds
+      KAFKA_SSL_TRUSTSTORE_FILENAME: kafka.kafka-broker-3.truststore.jks
+      KAFKA_SSL_TRUSTSTORE_CREDENTIALS: kafka-broker-3_truststore_creds
+      KAFKA_SSL_CLIENT_AUTH: requested
+      KAFKA_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM: HTTPS
+      KAFKA_OVERRIDE_INTER_BROKER_LISTENER_NAME: SASL_SSL
+      KAFKA_JMX_OPTS: ""
+      KAFKA_JMX_PORT: ""
+      KAFKA_OPTS: "-Djava.security.auth.login.config=/etc/kafka/config/kafka_server_jaas.conf -javaagent:/opt/jmx/jmx_prometheus_javaagent-1.4.0.jar=9403:/opt/jmx/jmx.kafka.yml"
+    volumes:
+      - ${DIR_PROPERTIES}:/etc/kafka/properties
+      - ${DIR_CERTIFICATES}/kafka-broker-3:/etc/kafka/secrets
+      - ${DIR_JAR}/jmx_prometheus_javaagent-1.4.0.jar:/opt/jmx/jmx_prometheus_javaagent-1.4.0.jar
+      - ${DIR_CONFIG}/kafka_server_jaas.conf:/etc/kafka/config/kafka_server_jaas.conf
+      - ${DIR_CONFIG}/jmx.kafka.yml:/opt/jmx/jmx.kafka.yml
+
+  connect:
+    image: cnfldemos/cp-server-connect-datagen:0.6.4-7.6.0
+    hostname: connect
+    container_name: connect
+    depends_on:
+      - kafka-broker-1
+      - kafka-broker-2
+      - kafka-broker-3
+      - schema-registry
+    networks:
+      - kafka-cluster-network
+    ports:
+      - "8083:8083"
+    environment:
+      CONNECT_BOOTSTRAP_SERVERS: "kafka-broker-1:29092,kafka-broker-2:29092,kafka-broker-3:29092"
+      CONNECT_SECURITY_PROTOCOL: PLAINTEXT
+      CONNECT_SASL_MECHANISM: SCRAM-SHA-512
+      CONNECT_SASL_JAAS_CONFIG: 'org.apache.kafka.common.security.scram.ScramLoginModule required username="kafkabroker" password="confluent";'
+      CONNECT_SSL_TRUSTSTORE_LOCATION: /etc/kafka/certificates/client/kafka.client.truststore.jks
+      CONNECT_SSL_TRUSTSTORE_PASSWORD: ${CLIENT_PASS}
+      CONNECT_REST_ADVERTISED_HOST_NAME: connect
+      CONNECT_GROUP_ID: compose-connect-group
+      CONNECT_CONFIG_STORAGE_TOPIC: docker-connect-configs
+      CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_OFFSET_FLUSH_INTERVAL_MS: 10000
+      CONNECT_OFFSET_STORAGE_TOPIC: docker-connect-offsets
+      CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_STATUS_STORAGE_TOPIC: docker-connect-status
+      CONNECT_STATUS_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_KEY_CONVERTER: org.apache.kafka.connect.storage.StringConverter
+      CONNECT_VALUE_CONVERTER: io.confluent.connect.avro.AvroConverter
+      CONNECT_VALUE_CONVERTER_SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      # CLASSPATH required due to CC-2422
+      CLASSPATH: /usr/share/java/monitoring-interceptors/monitoring-interceptors-8.0.0.jar
+      CONNECT_PRODUCER_INTERCEPTOR_CLASSES: "io.confluent.monitoring.clients.interceptor.MonitoringProducerInterceptor"
+      CONNECT_CONSUMER_INTERCEPTOR_CLASSES: "io.confluent.monitoring.clients.interceptor.MonitoringConsumerInterceptor"
+      CONNECT_PLUGIN_PATH: "/usr/share/java,/usr/share/confluent-hub-components"
+    volumes:
+      - ${DIR_CERTIFICATES}:/etc/kafka/certificates
+
+  prometheus:
+    image: confluentinc/cp-enterprise-prometheus:2.2.0
+    hostname: cp-enterprise-prometheus
+    container_name: prometheus
+    networks:
+      - kafka-cluster-network
+    volumes:
+      - ${DIR_CONFIG}:/mnt/config
+    ports:
+      - "9090:9090"
+    environment:
+      CONFIG_PATH: "/mnt/config"
+      SHOULD_LOG_TO_FILE: "false"
+
+  alertmanager:
+    image: confluentinc/cp-enterprise-alertmanager:2.2.0
+    hostname: cp-enterprise-alertmanager
+    container_name: alertmanager
+    networks:
+      - kafka-cluster-network
+    depends_on:
+      - prometheus
+    volumes:
+      - ${DIR_CONFIG}:/mnt/config
+    ports:
+      - "9093:9093"
+    environment:
+      CONFIG_PATH: "/mnt/config"
+      SHOULD_LOG_TO_FILE: "false"
+
+  ksqldb-server:
+    image: confluentinc/cp-ksqldb-server:8.0.0
+    hostname: ksqldb-server
+    container_name: ksqldb-server
+    depends_on:
+      - kafka-broker-1
+      - kafka-broker-2
+      - kafka-broker-3
+      - connect
+    networks:
+      - kafka-cluster-network
+    ports:
+      - "8088:8088"
+    environment:
+      KSQL_CONFIG_DIR: "/etc/ksql"
+      KSQL_BOOTSTRAP_SERVERS: "kafka-broker-1:29092,kafka-broker-2:29092,kafka-broker-3:29092"
+      KSQL_SECURITY_PROTOCOL: PLAINTEXT
+      KSQL_SASL_MECHANISM: SCRAM-SHA-512
+      KSQL_SASL_JAAS_CONFIG: 'org.apache.kafka.common.security.scram.ScramLoginModule required username="kafkabroker" password="confluent";'
+      KSQL_SSL_TRUSTSTORE_LOCATION: /etc/kafka/certificates/client/kafka.client.truststore.jks
+      KSQL_SSL_TRUSTSTORE_PASSWORD: ${CLIENT_PASS}
+      KSQL_HOST_NAME: ksqldb-server
+      KSQL_LISTENERS: "http://0.0.0.0:8088"
+      KSQL_CACHE_MAX_BYTES_BUFFERING: 0
+      KSQL_KSQL_SCHEMA_REGISTRY_URL: "http://schema-registry:8081"
+      KSQL_PRODUCER_INTERCEPTOR_CLASSES: "io.confluent.monitoring.clients.interceptor.MonitoringProducerInterceptor"
+      KSQL_CONSUMER_INTERCEPTOR_CLASSES: "io.confluent.monitoring.clients.interceptor.MonitoringConsumerInterceptor"
+      KSQL_KSQL_CONNECT_URL: "http://connect:8083"
+      KSQL_KSQL_LOGGING_PROCESSING_TOPIC_REPLICATION_FACTOR: 1
+      KSQL_KSQL_LOGGING_PROCESSING_TOPIC_AUTO_CREATE: "true"
+      KSQL_KSQL_LOGGING_PROCESSING_STREAM_AUTO_CREATE: "true"
+    volumes:
+      - ${DIR_CERTIFICATES}:/etc/kafka/certificates
+
+  schema-registry:
+    image: confluentinc/cp-schema-registry:8.0.0
+    hostname: schema-registry
+    container_name: schema-registry
+    networks:
+      - kafka-cluster-network
+    depends_on:
+      - kafka-broker-1
+      - kafka-broker-2
+      - kafka-broker-3
+    ports:
+      - "8081:8081"
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: "kafka-broker-1:29092,kafka-broker-2:29092,kafka-broker-3:29092"
+      SCHEMA_REGISTRY_KAFKASTORE_SECURITY_PROTOCOL: PLAINTEXT
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+
+      SCHEMA_REGISTRY_KAFKASTORE_SASL_MECHANISM: SCRAM-SHA-512
+      SCHEMA_REGISTRY_KAFKASTORE_SASL_JAAS_CONFIG: 'org.apache.kafka.common.security.scram.ScramLoginModule required username="kafkabroker" password="confluent";'
+
+      # Optional SSL truststore if brokers use SSL
+      SCHEMA_REGISTRY_KAFKASTORE_SSL_TRUSTSTORE_LOCATION: /etc/kafka/certificates/client/kafka.client.truststore.jks
+      SCHEMA_REGISTRY_KAFKASTORE_SSL_TRUSTSTORE_PASSWORD: ${CLIENT_PASS}
+    volumes:
+      - ${DIR_CERTIFICATES}:/etc/kafka/certificates
+
+  control-center:
+    image: confluentinc/cp-enterprise-control-center-next-gen:2.2.0
+    container_name: control-center
+    hostname: control-center
+    depends_on:
+      - schema-registry
+      - kafka-broker-1
+      - kafka-broker-2
+      - kafka-broker-3
+      - prometheus
+      - alertmanager
+    networks:
+      - kafka-cluster-network
+    ports:
+      - "9021:9021"
+    environment:
+      CONFLUENT_CONTROL_CENTER_ID: "cc-1"
+      CONTROL_CENTER_REPLICATION_FACTOR: 1
+      CONTROL_CENTER_INTERNAL_TOPICS_PARTITIONS: 12
+      CONTROL_CENTER_INTERNAL_TOPICS_REPLICATION: 1
+      CONTROL_CENTER_MONITORING_INTER_BROKER_TOPIC_PARTITIONS: 1
+
+      CONTROL_CENTER_BOOTSTRAP_SERVERS: "kafka-broker-1:29092,kafka-broker-2:29092,kafka-broker-3:29092"
+      CONTROL_CENTER_KAFKA_SECURITY_PROTOCOL: PLAINTEXT
+
+      CONTROL_CENTER_KAFKA_SASL_MECHANISM: SCRAM-SHA-512
+      CONTROL_CENTER_KAFKA_SASL_JAAS_CONFIG: 'org.apache.kafka.common.security.scram.ScramLoginModule required username="kafkabroker" password="confluent";'
+
+      CONTROL_CENTER_KAFKA_SSL_TRUSTSTORE_LOCATION: /etc/kafka/certificates/client/kafka.client.truststore.jks
+      CONTROL_CENTER_KAFKA_SSL_TRUSTSTORE_PASSWORD: ${CLIENT_PASS}
+      CONTROL_CENTER_KAFKA_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM: ""
+
+      CONTROL_CENTER_PROMETHEUS_URL: http://prometheus:9090
+      CONTROL_CENTER_PROMETHEUS_RULES_FILE: /mnt/config/trigger_rules-generated.yml
+
+      CONTROL_CENTER_ALERTMANAGER_URL: http://alertmanager:9093
+      CONTROL_CENTER_ALERTMANAGER_CONFIG_FILE: /mnt/config/alertmanager-generated.yml
+
+      CONTROL_CENTER_SCHEMA_REGISTRY_URL: "http://schema-registry:8081"
+
+      KAFKA_OPTS: -Djavax.net.debug=ssl,handshake,verbose -Dsun.security.krb5.debug=true
+
+    volumes:
+      - ${DIR_CERTIFICATES}:/etc/kafka/certificates
+      - ${DIR_CONFIG}/trigger_rules-generated.yml:/mnt/config/trigger_rules-generated.yml
+      - ${DIR_CONFIG}/alertmanager-generated.yml:/mnt/config/alertmanager-generated.yml

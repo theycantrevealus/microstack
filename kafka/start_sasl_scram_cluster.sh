@@ -26,11 +26,14 @@ LAST_LINE=""
 # CLUSTER_ID=xwKCEeWJToei3os4N3JYfQ
 export CLUSTER_ID=$(docker run --rm confluentinc/cp-kafka:latest kafka-storage random-uuid)
 WORKDIR=${PWD}
-TARGET_COMPOSE="docker-compose-scram.yml"
+TARGET_COMPOSE="docker-compose.yml"
 export DIR_PROPERTIES=$WORKDIR/properties
 export DIR_JAR=$WORKDIR/jar
 export DIR_CONFIG=$WORKDIR/config
 export DIR_CERTIFICATES=$WORKDIR/certificates
+SSL_DIR=${DIR_CERTIFICATES}
+CA_DIR=${SSL_DIR}/ca
+CLIENT_DIR=${SSL_DIR}/client
 
 lines=(
     "Apps Name          : MICROSTACK - KAFKA KRAFT MODE STARTER"
@@ -38,6 +41,8 @@ lines=(
     "Get it touch       : hendrytanaka10@icloud.com"
     "Working dir        : ${WORKDIR}"
     "Certificates       : ${DIR_CERTIFICATES}"
+    "Client Cert        : ${CLIENT_DIR}"
+    "SSL                : ${SSL_DIR}"
     "Properties         : ${DIR_PROPERTIES}"
     "JAR                : ${DIR_JAR}"
     "CONFIG             : ${DIR_CONFIG}"
@@ -46,10 +51,6 @@ print_frame "${lines[@]}"
 
 export BROKER_PASS=brokerpass
 export CLIENT_PASS=clientpass
-
-SSL_DIR=${DIR_CERTIFICATES}
-CA_DIR=${SSL_DIR}/ca
-CLIENT_DIR=${SSL_DIR}/client
 
 rm -rf "${DIR_CERTIFICATES}"
 rm -rf "${DIR_PROPERTIES}"
@@ -197,8 +198,32 @@ generate_client_cert() {
   update_status "✅ OK"
 
   custom_print "🔑 Client keystore - format to PKCS8"
-  openssl pkcs8 -topk8 -inform PEM -outform PEM -in "${CLIENT_DIR}/kafka-client.key" -out "${CLIENT_DIR}/kafka-client.key.pem" -nocrypt
+  openssl pkcs8 -topk8 -inform PEM -outform PEM -in "${CLIENT_DIR}/kafka-client.key" -out "${CLIENT_DIR}/kafka-client.key.pem" -nocrypt >/dev/null 2>&1
   update_status "✅ OK"
+
+  custom_print "🔑 Client keystore - convert client cert + key to PKCS12"
+  openssl pkcs12 -export \
+    -in "${CLIENT_DIR}/kafka-client.pem" \
+    -inkey "${CLIENT_DIR}/kafka-client.key.pem" \
+    -out "${CLIENT_DIR}/kafka.client.p12" \
+    -name kafka-client \
+    -CAfile "${SSL_DIR}/pem/kafka-cluster-ca.pem" \
+    -caname root \
+    -password "pass:${CLIENT_PASS}" >/dev/null 2>&1
+  update_status "✅ OK"
+
+  custom_print "🔑 Client keystore - import to JKS"
+  keytool -importkeystore \
+    -deststorepass "${CLIENT_PASS}" \
+    -destkeypass "${CLIENT_PASS}" \
+    -destkeystore "${CLIENT_DIR}/kafka.client.keystore.jks" \
+    -srckeystore "${CLIENT_DIR}/kafka.client.p12" \
+    -srcstoretype PKCS12 \
+    -srcstorepass "${CLIENT_PASS}" \
+    -alias kafka-client\
+    -noprompt >/dev/null 2>&1
+  update_status "✅ OK"
+
 }
 
 export_pem_bundle() {
@@ -376,7 +401,7 @@ create_test_topic() {
     --create \
     --topic test.internal \
     --partitions 1 \
-    --replication-factor 3 2>&1 | grep -v '^WARN' || true
+    --replication-factor 3 >/dev/null 2>&1 | grep -v '^WARN' || true
   echo -ne "\033[1A\033[2K"
   echo -ne "\033[1A\033[2K"
   update_status "✅ OK"
@@ -384,7 +409,7 @@ create_test_topic() {
   custom_print "📝 Check for test topic"
   docker exec -e KAFKA_OPTS="" kafka-broker-1 kafka-topics \
     --bootstrap-server kafka-broker-1:29092 \
-    --list 2>&1 || true
+    --list >/dev/null 2>&1 || true
   echo -ne "\033[1A\033[2K"
   update_status "✅ OK"
   
@@ -500,7 +525,7 @@ hr() {
 
 update_status() {
   local status="$1"
-  local width=($(tput cols)-2) / 2
+  local width=$(( $(tput cols) / 2 ))
   local dots=$((width - ${#LAST_LINE} - ${#status}))
   (( dots < 1 )) && dots=1
   echo -ne "\033[1A\033[2K"
@@ -516,9 +541,9 @@ for b in kafka-broker-1 kafka-broker-2 kafka-broker-3; do
   generate_broker_cert "${b}"
   verify_broker_cert "${b}"
 done
+export_pem_bundle
 generate_client_cert
 verify_client_cert
-export_pem_bundle
 verify_pem_bundle
 clean_ports
 generate_jaas kafkabroker confluent
