@@ -24,9 +24,9 @@ print_frame() {
 export PATH=$PATH:/home/takashitanaka/.vscode/extensions/redhat.java-1.45.0-linux-x64/jre/21.0.8-linux-x86_64/bin
 LAST_LINE=""
 # CLUSTER_ID=xwKCEeWJToei3os4N3JYfQ
-export CLUSTER_ID=$(docker run --rm confluentinc/cp-kafka:latest kafka-storage random-uuid)
 WORKDIR=${PWD}
 TARGET_COMPOSE="docker-compose.yml"
+export CLUSTER_ID=$(docker run --rm confluentinc/cp-kafka:latest kafka-storage random-uuid)
 export DIR_PROPERTIES=$WORKDIR/properties
 export DIR_JAR=$WORKDIR/jar
 export DIR_CONFIG=$WORKDIR/config
@@ -264,7 +264,8 @@ clean_ports() {
 
 start_docker() {
   custom_print "📦 Starting Service Group"
-  docker-compose -p "message-broker" -f "$PWD/$TARGET_COMPOSE" up -d --remove-orphans 2>/dev/null
+  # docker-compose -p "message-broker" -f "$PWD/$TARGET_COMPOSE" up -d --remove-orphans 2>/dev/null
+  docker-compose -p "message-broker" -f "$PWD/$TARGET_COMPOSE" up -d --remove-orphans
   update_status "✅ OK"
 }
 

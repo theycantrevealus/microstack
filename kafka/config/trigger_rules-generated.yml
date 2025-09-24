@@ -1,3 +1,62 @@
 groups:
   - name: c3-triggers
     rules:
+      # Broker availability
+      - alert: BrokerDown
+        expr: kafka_server_broker_state{state="NotRunning"} == 1
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Kafka broker {{ $labels.broker }} is down"
+          description: "Kafka broker {{ $labels.broker }} is not running."
+
+      # Under-replicated partitions
+      - alert: UnderReplicatedPartitions
+        expr: kafka_cluster_partition_under_replicated > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Under-replicated partitions detected"
+          description: "There are {{ $value }} under-replicated partitions in the cluster."
+
+      # Offline partitions
+      - alert: OfflinePartitions
+        expr: kafka_cluster_partition_offline > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Offline partitions detected"
+          description: "There are {{ $value }} offline partitions in the cluster."
+
+      # Broker log flush rate (slow flush)
+      - alert: SlowLogFlush
+        expr: kafka_server_log_flush_rate < 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Kafka broker {{ $labels.broker }} has low log flush rate"
+          description: "Log flush rate is below threshold: {{ $value }}"
+
+      # Controller active
+      - alert: ControllerNotActive
+        expr: kafka_controller_active_controller_count != 1
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Kafka controller is not active"
+          description: "No active Kafka controller detected in the cluster."
+
+      # Partition count anomaly
+      - alert: PartitionCountChanged
+        expr: kafka_server_partition_count != ignoring(broker) kafka_server_partition_count offset 1m
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Partition count change detected"
+          description: "Partition count changed by {{ $value }} in the last minute."
