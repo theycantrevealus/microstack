@@ -12,6 +12,7 @@ services:
   # ===================================================================================================================================
   kafka-format:
     image: confluentinc/cp-kafka:latest
+    profiles: ["core", "full"]
     user: "0"
     volumes:
       - ${DIR_PROPERTIES}:/etc/kafka/properties
@@ -25,6 +26,7 @@ services:
 
   kafka-init:
     image: confluentinc/cp-kafka:latest
+    profiles: ["core", "full"]
     user: "0"
     networks:
       - kafka-cluster-network
@@ -42,6 +44,7 @@ services:
 
   schema-registry-healthcheck:
     image: alpine/curl:8.2.1
+    profiles: ["core", "full"]
     container_name: schema-registry-healthcheck
     networks:
       - kafka-cluster-network
@@ -67,6 +70,7 @@ services:
 
   prometheus-healthcheck:
     image: alpine/curl:8.2.1
+    profiles: ["full"]
     container_name: prometheus-healthcheck
     networks:
       - kafka-cluster-network
@@ -93,6 +97,7 @@ services:
   # ===================================================================================================================================
   kafka-broker-1:
     image: confluentinc/cp-server:latest
+    profiles: ["core", "full"]
     container_name: kafka-broker-1
     hostname: kafka-broker-1
     depends_on:
@@ -162,6 +167,13 @@ services:
       KAFKA_CONFLUENT_TELEMETRY_REMOTECONFIG_CONFLUENT_ENABLED: "false"
       KAFKA_CONFLUENT_CONSUMER_LAG_EMITTER_ENABLED: "true"
       KAFKA_HEAP_OPTS: "-Xms1G -Xmx2G"
+      KAFKA_NUM_NETWORK_THREADS: 2
+      KAFKA_NUM_IO_THREADS: 2
+      KAFKA_BACKGROUND_THREADS: 2
+      KAFKA_NUM_PARTITIONS: 1
+      KAFKA_DEFAULT_REPLICATION_FACTOR: 1
+      KAFKA_LOG_RETENTION_HOURS: 1
+      KAFKA_LOG_SEGMENT_BYTES: 10485760
 
       KAFKA_SASL_ENABLED_MECHANISMS: SCRAM-SHA-512
       KAFKA_SASL_MECHANISM_INTER_BROKER_PROTOCOL: SCRAM-SHA-512
@@ -192,6 +204,7 @@ services:
 
   kafka-broker-2:
     image: confluentinc/cp-server:latest
+    profiles: ["core", "full"]
     container_name: kafka-broker-2
     hostname: kafka-broker-2
     depends_on:
@@ -261,6 +274,13 @@ services:
       KAFKA_CONFLUENT_TELEMETRY_REMOTECONFIG_CONFLUENT_ENABLED: "false"
       KAFKA_CONFLUENT_CONSUMER_LAG_EMITTER_ENABLED: "true"
       KAFKA_HEAP_OPTS: "-Xms1G -Xmx2G"
+      KAFKA_NUM_NETWORK_THREADS: 2
+      KAFKA_NUM_IO_THREADS: 2
+      KAFKA_BACKGROUND_THREADS: 2
+      KAFKA_NUM_PARTITIONS: 1
+      KAFKA_DEFAULT_REPLICATION_FACTOR: 1
+      KAFKA_LOG_RETENTION_HOURS: 1
+      KAFKA_LOG_SEGMENT_BYTES: 10485760
 
       KAFKA_SASL_ENABLED_MECHANISMS: SCRAM-SHA-512
       KAFKA_SASL_MECHANISM_INTER_BROKER_PROTOCOL: SCRAM-SHA-512
@@ -290,6 +310,7 @@ services:
 
   kafka-broker-3:
     image: confluentinc/cp-server:latest
+    profiles: ["core", "full"]
     container_name: kafka-broker-3
     hostname: kafka-broker-3
     depends_on:
@@ -359,6 +380,13 @@ services:
       KAFKA_CONFLUENT_TELEMETRY_REMOTECONFIG_CONFLUENT_ENABLED: "false"
       KAFKA_CONFLUENT_CONSUMER_LAG_EMITTER_ENABLED: "true"
       KAFKA_HEAP_OPTS: "-Xms1G -Xmx2G"
+      KAFKA_NUM_NETWORK_THREADS: 2
+      KAFKA_NUM_IO_THREADS: 2
+      KAFKA_BACKGROUND_THREADS: 2
+      KAFKA_NUM_PARTITIONS: 1
+      KAFKA_DEFAULT_REPLICATION_FACTOR: 1
+      KAFKA_LOG_RETENTION_HOURS: 1
+      KAFKA_LOG_SEGMENT_BYTES: 10485760
 
       KAFKA_SASL_ENABLED_MECHANISMS: SCRAM-SHA-512
       KAFKA_SASL_MECHANISM_INTER_BROKER_PROTOCOL: SCRAM-SHA-512
@@ -388,8 +416,11 @@ services:
 
   prometheus:
     image: confluentinc/cp-enterprise-prometheus:2.2.0
+    profiles: ["full"]
     hostname: cp-enterprise-prometheus
     container_name: prometheus
+    cpus: 0.25
+    mem_limit: 256m
     healthcheck:
       test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9090 || exit 1"]
       interval: 10s
@@ -412,9 +443,12 @@ services:
 
   alertmanager:
     image: confluentinc/cp-enterprise-alertmanager:2.2.0
+    profiles: ["full"]
     hostname: cp-enterprise-alertmanager
     restart: on-failure
     container_name: alertmanager
+    cpus: 0.25
+    mem_limit: 128m
     networks:
       - kafka-cluster-network
     depends_on:
@@ -430,7 +464,10 @@ services:
 
   schema-registry:
     image: confluentinc/cp-schema-registry:8.0.0
+    profiles: ["core", "full"]
     hostname: schema-registry
+    cpus: 0.25
+    mem_limit: 256m
     healthcheck:
       test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8081 || exit 1"]
       interval: 10s
@@ -455,13 +492,18 @@ services:
       SCHEMA_REGISTRY_KAFKASTORE_SASL_JAAS_CONFIG: 'org.apache.kafka.common.security.scram.ScramLoginModule required username="kafkabroker" password="confluent";'
       SCHEMA_REGISTRY_KAFKASTORE_SSL_TRUSTSTORE_LOCATION: /etc/kafka/certificates/client/kafka.client.truststore.jks
       SCHEMA_REGISTRY_KAFKASTORE_SSL_TRUSTSTORE_PASSWORD: ${CLIENT_PASS}
+
+      SCHEMA_REGISTRY_HEAP_OPTS: "-Xmx128M -Xms64M"
     volumes:
       - ${DIR_CERTIFICATES}:/etc/kafka/certificates
 
   control-center:
     image: confluentinc/cp-enterprise-control-center-next-gen:2.2.0
+    profiles: ["full"]
     container_name: control-center
     hostname: control-center
+    cpus: 1.0
+    mem_limit: 1g
     restart: on-failure
     depends_on:
       kafka-broker-1:
@@ -517,15 +559,22 @@ services:
       CONTROL_CENTER_PROMETHEUS_ENABLE: "true"
       PORT: 9021
 
+      CONTROL_CENTER_HEAP_OPTS: "-Xmx512M -Xms256M"
+      CONTROL_CENTER_MONITORING_INTERCEPTORS_ENABLED: "false"
+      CONTROL_CENTER_MONITORING_INTERCEPTORS_TOPIC_PARTITIONS: 1
+
     volumes:
       - ${DIR_CERTIFICATES}:/etc/kafka/certificates
       - ${DIR_CONFIG}:/mnt/config
 
   ksqldb-server:
     image: confluentinc/cp-ksqldb-server:8.0.0
+    profiles: ["core", "full"]
     hostname: ksqldb-server
     restart: on-failure
     container_name: ksqldb-server
+    cpus: 0.5
+    mem_limit: 512m
     networks:
       - kafka-cluster-network
     depends_on:
@@ -559,6 +608,11 @@ services:
       KSQL_KSQL_LOGGING_PROCESSING_TOPIC_REPLICATION_FACTOR: 1
       KSQL_KSQL_LOGGING_PROCESSING_TOPIC_AUTO_CREATE: "true"
       KSQL_KSQL_LOGGING_PROCESSING_STREAM_AUTO_CREATE: "true"
+
+      KSQL_HEAP_OPTS: "-Xmx256M -Xms128M"
+      KSQL_NUM_STREAM_THREADS: 1
+      KSQL_LOG_RETENTION_MS: 600000 # 10 min
+      KSQL_LOG_CLEANUP_POLICY: delete
     volumes:
       - ${DIR_CERTIFICATES}:/etc/kafka/certificates
 
@@ -586,6 +640,8 @@ services:
     image: confluentinc/ksqldb-examples:8.0.0
     hostname: ksql-datagen
     container_name: ksql-datagen
+    cpus: 0.25
+    mem_limit: 128m
     networks:
       - kafka-cluster-network
     depends_on:
@@ -622,14 +678,19 @@ services:
       STREAMS_KAFKA_SSL_TRUSTSTORE_PASSWORD: ${CLIENT_PASS}
       STREAMS_SCHEMA_REGISTRY_HOST: schema-registry
       STREAMS_SCHEMA_REGISTRY_PORT: 8081
+
+      KSQL_DATAGEN_HEAP_OPTS: "-Xmx128M -Xms64M"
     volumes:
       - ${DIR_CERTIFICATES}:/etc/kafka/certificates
 
   connect:
     image: confluentinc/cp-kafka-connect:7.6.0
+    profiles: ["core", "full"]
     hostname: connect
     restart: on-failure
     container_name: connect
+    cpus: 0.5
+    mem_limit: 512m
     networks:
       - kafka-cluster-network
     depends_on:
@@ -663,6 +724,10 @@ services:
       CONNECT_KEY_CONVERTER: org.apache.kafka.connect.storage.StringConverter
       CONNECT_VALUE_CONVERTER: io.confluent.connect.avro.AvroConverter
       CONNECT_VALUE_CONVERTER_SCHEMA_REGISTRY_URL: http://schema-registry:8081
+
+      CONNECT_HEAP_OPTS: "-Xmx256M -Xms128M"
+      CONNECT_PRODUCER_MAX_REQUEST_SIZE: 1048576
+      CONNECT_CONSUMER_MAX_PARTITION_FETCH_BYTES: 1048576
       # CLASSPATH required due to CC-2422
       # CLASSPATH: /usr/share/java/monitoring-interceptors/monitoring-interceptors-8.0.0.jar
       # CONNECT_PRODUCER_INTERCEPTOR_CLASSES: "io.confluent.monitoring.clients.interceptor.MonitoringProducerInterceptor"

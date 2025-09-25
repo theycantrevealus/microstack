@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+PROFILE="${1:-core}"
 print_frame() {
     local lines=("$@")
     local max_len=0
@@ -40,6 +41,8 @@ lines=(
     "Apps Name          : MICROSTACK - KAFKA KRAFT MODE STARTER"
     "Created by         : HENDRY TANAKA"
     "Get it touch       : hendrytanaka10@icloud.com"
+    ===========================================================
+    "Profile            : ${PROFILE}"
     "Working dir        : ${WORKDIR}"
     "Certificates       : ${DIR_CERTIFICATES}"
     "Client Cert        : ${CLIENT_DIR}"
@@ -269,24 +272,39 @@ start_docker() {
   custom_print "📦 Starting Service Group"
   # docker-compose -p "message-broker" -f "$PWD/$TARGET_COMPOSE" up -d --remove-orphans 2>/dev/null
   # docker-compose -p "message-broker" -f "$PWD/$TARGET_COMPOSE" up -d --remove-orphans
-  docker-compose -p "message-broker" -f "$PWD/$TARGET_COMPOSE" up kafka-format -d --remove-orphans
-  docker-compose -p "message-broker" -f "$PWD/$TARGET_COMPOSE" up kafka-broker-1, kafka-broker-2, kafka-broker-3 -d --remove-orphans
-  docker-compose -p "message-broker" -f "$PWD/$TARGET_COMPOSE" up kafka-init -d --remove-orphans
-  docker-compose -p "message-broker" -f "$PWD/$TARGET_COMPOSE" up kafka-format -d --remove-orphans
-  docker-compose -p "message-broker" -f "$PWD/$TARGET_COMPOSE" up kafka-format -d --remove-orphans
-  docker-compose -p "message-broker" -f "$PWD/$TARGET_COMPOSE" up kafka-format -d --remove-orphans
-  docker-compose -p "message-broker" -f "$PWD/$TARGET_COMPOSE" up kafka-format -d --remove-orphans
+
+  # docker compose \
+  #   --profile full \
+  #   -p "message-broker" \
+  #   -f "$PWD/$TARGET_COMPOSE" \
+  #   up -d --remove-orphans
+
+  docker compose \
+    --profile "$PROFILE" \
+    -p "message-broker" \
+    -f "$PWD/$TARGET_COMPOSE" \
+    up -d --remove-orphans
+
   update_status "✅ OK"
 
   custom_print "📦 Clear formatter"
   docker-compose -p "message-broker" -f "$PWD/$TARGET_COMPOSE" rm -f -s kafka-format 2>/dev/null
+  echo -ne "\033[1A\033[2K"
+  update_status "✅ OK"
+
+  custom_print "📦 Clear initiator"
   docker-compose -p "message-broker" -f "$PWD/$TARGET_COMPOSE" rm -f -s kafka-init 2>/dev/null
+  echo -ne "\033[1A\033[2K"
+  update_status "✅ OK"
+
+  custom_print "📦 Clear schema registry checker"
   docker-compose -p "message-broker" -f "$PWD/$TARGET_COMPOSE" rm -f -s schema-registry-healthcheck 2>/dev/null
+  echo -ne "\033[1A\033[2K"
+  update_status "✅ OK"
+  
+  custom_print "📦 Clear prometheus checker"
   docker-compose -p "message-broker" -f "$PWD/$TARGET_COMPOSE" rm -f -s prometheus-healthcheck 2>/dev/null
-  # echo -ne "\033[1A\033[2K"
-  # echo -ne "\033[1A\033[2K"
-  # echo -ne "\033[1A\033[2K"
-  # echo -ne "\033[1A\033[2K"
+  echo -ne "\033[1A\033[2K"
   update_status "✅ OK"
 }
 
