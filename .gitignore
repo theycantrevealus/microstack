@@ -16,3 +16,7 @@ config/*.conf
 node_modules
 backup_*.sh
 backup_*.yml
+
+
+# FOR KAFKA
+kafka/shell/*

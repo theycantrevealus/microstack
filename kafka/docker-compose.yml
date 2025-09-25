@@ -1,19 +1,121 @@
 networks:
   kafka-cluster-network:
     driver: bridge
+volumes:
+  kafka-broker-1-data:
+  kafka-broker-2-data:
+  kafka-broker-3-data:
 
 services:
+  # ===================================================================================================================================
+  #  INITIATOR
+  # ===================================================================================================================================
+  kafka-format:
+    image: confluentinc/cp-kafka:latest
+    user: "0"
+    volumes:
+      - ${DIR_PROPERTIES}:/etc/kafka/properties
+      - ${DIR_SHELL}:/usr/local/bin
+      - ${DIR_CERTIFICATES}:/etc/kafka/secrets
+      - kafka-broker-1-data:/var/lib/kafka/data-1
+      - kafka-broker-2-data:/var/lib/kafka/data-2
+      - kafka-broker-3-data:/var/lib/kafka/data-3
+    command: ["/usr/local/bin/kafka-broker-format.sh"]
+    restart: "no"
+
+  kafka-init:
+    image: confluentinc/cp-kafka:latest
+    user: "0"
+    networks:
+      - kafka-cluster-network
+    depends_on:
+      kafka-broker-1:
+        condition: service_started
+      kafka-broker-2:
+        condition: service_started
+      kafka-broker-3:
+        condition: service_started
+    command: ["/usr/local/bin/kafka-create-user.sh"]
+    restart: "no"
+    volumes:
+      - ${DIR_SHELL}:/usr/local/bin
+
+  schema-registry-healthcheck:
+    image: alpine/curl:8.2.1
+    container_name: schema-registry-healthcheck
+    networks:
+      - kafka-cluster-network
+    depends_on:
+      schema-registry:
+        condition: service_started
+    command: >
+      sh -c "
+        i=0
+        while [ $$i -lt 60 ]; do
+          if curl -fsS http://schema-registry:8081/mode >/dev/null; then
+            echo '✅ Schema Registry is ready'
+            exit 0
+          fi
+          echo '⏳ Schema Registry not ready, retrying...'
+          i=$$((i+1))
+          sleep 5
+        done
+        echo '❌ Schema Registry failed to become ready in time'
+        exit 1
+      "
+    restart: "no"
+
+  prometheus-healthcheck:
+    image: alpine/curl:8.2.1
+    container_name: prometheus-healthcheck
+    networks:
+      - kafka-cluster-network
+    depends_on:
+      prometheus:
+        condition: service_started
+    command: >
+      sh -c "
+        i=0
+        while [ $$i -lt 60 ]; do
+          if curl -fsS http://prometheus:9090/-/healthy >/dev/null; then
+            exit 0
+          fi
+          echo 'Prometheus not ready, retrying...'
+          i=$$((i+1))
+          sleep 5
+        done
+        exit 1
+      "
+    restart: "no"
+
+  # ===================================================================================================================================
+  #  BROKERS
+  # ===================================================================================================================================
   kafka-broker-1:
     image: confluentinc/cp-server:latest
     container_name: kafka-broker-1
     hostname: kafka-broker-1
+    depends_on:
+      kafka-format:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "/usr/bin/kafka-broker-api-versions",
+          "--bootstrap-server",
+          "localhost:29092",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
     restart: on-failure
     networks:
       - kafka-cluster-network
     ports:
       - "19094:9094"
       - "19192:29092"
-      - "9401:9401"
       - "8401:8401"
     logging:
       driver: "json-file"
@@ -78,7 +180,6 @@ services:
       KAFKA_CONFLUENT_SUPPORT_METRICS_ENABLE: "false"
       KAFKA_CONFLUENT_TELEMETRY_ENABLE: "false"
       KAFKA_OPTS: "-Dlog4j2.disable.jmx=true -Dlog4j2.formatMsgNoLookups=true -Djava.security.auth.login.config=/etc/kafka/config/kafka_server_jaas.conf"
-
       # KAFKA_OPTS: "-Dlog4j2.disable.jmx=true -Dlog4j2.formatMsgNoLookups=true -Djava.security.auth.login.config=/etc/kafka/config/kafka_server_jaas.conf -javaagent:/opt/jmx/jmx_prometheus_javaagent-1.4.0.jar=9401:/opt/jmx/jmx.kafka.yml"
 
     volumes:
@@ -87,18 +188,33 @@ services:
       - ${DIR_JAR}/jmx_prometheus_javaagent-1.4.0.jar:/opt/jmx/jmx_prometheus_javaagent-1.4.0.jar
       - ${DIR_CONFIG}/kafka_server_jaas.conf:/etc/kafka/config/kafka_server_jaas.conf
       - ${DIR_CONFIG}/jmx.kafka.yml:/opt/jmx/jmx.kafka.yml
+      - kafka-broker-1-data:/var/lib/kafka/data-1
 
   kafka-broker-2:
     image: confluentinc/cp-server:latest
     container_name: kafka-broker-2
     hostname: kafka-broker-2
+    depends_on:
+      kafka-format:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "/usr/bin/kafka-broker-api-versions",
+          "--bootstrap-server",
+          "localhost:29092",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
     restart: on-failure
     networks:
       - kafka-cluster-network
     ports:
       - "29094:9094"
       - "29192:29092"
-      - "9402:9402"
       - "8402:8402"
     logging:
       driver: "json-file"
@@ -164,26 +280,39 @@ services:
       KAFKA_CONFLUENT_TELEMETRY_ENABLE: "false"
       KAFKA_OPTS: "-Dlog4j2.disable.jmx=true -Dlog4j2.formatMsgNoLookups=true -Djava.security.auth.login.config=/etc/kafka/config/kafka_server_jaas.conf"
 
-      # KAFKA_OPTS: "-Dlog4j2.disable.jmx=true -Dlog4j2.formatMsgNoLookups=true -Djava.security.auth.login.config=/etc/kafka/config/kafka_server_jaas.conf -javaagent:/opt/jmx/jmx_prometheus_javaagent-1.4.0.jar=9402:/opt/jmx/jmx.kafka.yml"
-
     volumes:
       - ${DIR_PROPERTIES}:/etc/kafka/properties
       - ${DIR_CERTIFICATES}/kafka-broker-2:/etc/kafka/secrets
       - ${DIR_JAR}/jmx_prometheus_javaagent-1.4.0.jar:/opt/jmx/jmx_prometheus_javaagent-1.4.0.jar
       - ${DIR_CONFIG}/kafka_server_jaas.conf:/etc/kafka/config/kafka_server_jaas.conf
       - ${DIR_CONFIG}/jmx.kafka.yml:/opt/jmx/jmx.kafka.yml
+      - kafka-broker-2-data:/var/lib/kafka/data-2
 
   kafka-broker-3:
     image: confluentinc/cp-server:latest
     container_name: kafka-broker-3
     hostname: kafka-broker-3
+    depends_on:
+      kafka-format:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "/usr/bin/kafka-broker-api-versions",
+          "--bootstrap-server",
+          "localhost:29092",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
     restart: on-failure
     networks:
       - kafka-cluster-network
     ports:
       - "39094:9094"
       - "39192:29092"
-      - "9403:9403"
       - "8403:8403"
     logging:
       driver: "json-file"
@@ -249,19 +378,28 @@ services:
       KAFKA_CONFLUENT_TELEMETRY_ENABLE: "false"
       KAFKA_OPTS: "-Dlog4j2.disable.jmx=true -Dlog4j2.formatMsgNoLookups=true -Djava.security.auth.login.config=/etc/kafka/config/kafka_server_jaas.conf"
 
-      # KAFKA_OPTS: "-Dlog4j2.disable.jmx=true -Dlog4j2.formatMsgNoLookups=true -Djava.security.auth.login.config=/etc/kafka/config/kafka_server_jaas.conf -javaagent:/opt/jmx/jmx_prometheus_javaagent-1.4.0.jar=9403:/opt/jmx/jmx.kafka.yml"
-
     volumes:
       - ${DIR_PROPERTIES}:/etc/kafka/properties
       - ${DIR_CERTIFICATES}/kafka-broker-3:/etc/kafka/secrets
       - ${DIR_JAR}/jmx_prometheus_javaagent-1.4.0.jar:/opt/jmx/jmx_prometheus_javaagent-1.4.0.jar
       - ${DIR_CONFIG}/kafka_server_jaas.conf:/etc/kafka/config/kafka_server_jaas.conf
       - ${DIR_CONFIG}/jmx.kafka.yml:/opt/jmx/jmx.kafka.yml
+      - kafka-broker-3-data:/var/lib/kafka/data-3
 
   prometheus:
     image: confluentinc/cp-enterprise-prometheus:2.2.0
     hostname: cp-enterprise-prometheus
     container_name: prometheus
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9090 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+    depends_on:
+      kafka-format:
+        condition: service_completed_successfully
     networks:
       - kafka-cluster-network
     volumes:
@@ -275,11 +413,13 @@ services:
   alertmanager:
     image: confluentinc/cp-enterprise-alertmanager:2.2.0
     hostname: cp-enterprise-alertmanager
+    restart: on-failure
     container_name: alertmanager
     networks:
       - kafka-cluster-network
     depends_on:
-      - prometheus
+      prometheus-healthcheck:
+        condition: service_completed_successfully
     volumes:
       - ${DIR_CONFIG}:/mnt/config
     ports:
@@ -291,14 +431,19 @@ services:
   schema-registry:
     image: confluentinc/cp-schema-registry:8.0.0
     hostname: schema-registry
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8081 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
     container_name: schema-registry
     restart: on-failure
     networks:
       - kafka-cluster-network
     depends_on:
-      - kafka-broker-1
-      - kafka-broker-2
-      - kafka-broker-3
+      kafka-init:
+        condition: service_completed_successfully
     ports:
       - "8081:8081"
     environment:
@@ -317,15 +462,24 @@ services:
     image: confluentinc/cp-enterprise-control-center-next-gen:2.2.0
     container_name: control-center
     hostname: control-center
+    restart: on-failure
     depends_on:
-      - schema-registry
-      - kafka-broker-1
-      - kafka-broker-2
-      - kafka-broker-3
-      - connect
-      - ksqldb-server
-      - prometheus
-      - alertmanager
+      kafka-broker-1:
+        condition: service_healthy
+      kafka-broker-2:
+        condition: service_healthy
+      kafka-broker-3:
+        condition: service_healthy
+      schema-registry-healthcheck:
+        condition: service_completed_successfully
+      connect:
+        condition: service_started
+      ksqldb-server:
+        condition: service_started
+      prometheus-healthcheck:
+        condition: service_completed_successfully
+      alertmanager:
+        condition: service_started
     networks:
       - kafka-cluster-network
     ports:
@@ -333,7 +487,6 @@ services:
     environment:
       CONFLUENT_CONTROL_CENTER_ID: "cc-1"
       CONTROL_CENTER_REPLICATION_FACTOR: 1
-      # CONTROL_CENTER_INTERNAL_TOPICS_PARTITIONS: 12
       CONTROL_CENTER_INTERNAL_TOPICS_PARTITIONS: 3
       CONTROL_CENTER_INTERNAL_TOPICS_REPLICATION: 1
       CONTROL_CENTER_MONITORING_INTER_BROKER_TOPIC_PARTITIONS: 1
@@ -371,14 +524,19 @@ services:
   ksqldb-server:
     image: confluentinc/cp-ksqldb-server:8.0.0
     hostname: ksqldb-server
+    restart: on-failure
     container_name: ksqldb-server
     networks:
       - kafka-cluster-network
     depends_on:
-      - kafka-broker-1
-      - kafka-broker-2
-      - kafka-broker-3
-      - connect
+      kafka-broker-1:
+        condition: service_healthy
+      kafka-broker-2:
+        condition: service_healthy
+      kafka-broker-3:
+        condition: service_healthy
+      connect:
+        condition: service_started
     ports:
       - "8088:8088"
     environment:
@@ -407,14 +565,20 @@ services:
   ksqldb-cli:
     image: confluentinc/cp-ksqldb-cli:8.0.0
     container_name: ksqldb-cli
+    restart: on-failure
     networks:
       - kafka-cluster-network
     depends_on:
-      - kafka-broker-1
-      - kafka-broker-2
-      - kafka-broker-3
-      - connect
-      - ksqldb-server
+      kafka-broker-1:
+        condition: service_healthy
+      kafka-broker-2:
+        condition: service_healthy
+      kafka-broker-3:
+        condition: service_healthy
+      connect:
+        condition: service_started
+      ksqldb-server:
+        condition: service_started
     entrypoint: /bin/sh
     tty: true
 
@@ -425,12 +589,18 @@ services:
     networks:
       - kafka-cluster-network
     depends_on:
-      - ksqldb-server
-      - kafka-broker-1
-      - kafka-broker-2
-      - kafka-broker-3
-      - schema-registry
-      - connect
+      kafka-broker-1:
+        condition: service_healthy
+      kafka-broker-2:
+        condition: service_healthy
+      kafka-broker-3:
+        condition: service_healthy
+      ksqldb-server:
+        condition: service_started
+      schema-registry-healthcheck:
+        condition: service_completed_successfully
+      connect:
+        condition: service_started
     command: "bash -c 'echo Waiting for Kafka Broker 1 to be ready... && \
       cub kafka-ready -b kafka-broker-1:29092 1 40 && \
       echo Waiting for Kafka Broker 2 to be ready... && \
@@ -458,14 +628,19 @@ services:
   connect:
     image: confluentinc/cp-kafka-connect:7.6.0
     hostname: connect
+    restart: on-failure
     container_name: connect
     networks:
       - kafka-cluster-network
     depends_on:
-      - kafka-broker-1
-      - kafka-broker-2
-      - kafka-broker-3
-      - schema-registry
+      kafka-broker-1:
+        condition: service_healthy
+      kafka-broker-2:
+        condition: service_healthy
+      kafka-broker-3:
+        condition: service_healthy
+      schema-registry-healthcheck:
+        condition: service_completed_successfully
     ports:
       - "8083:8083"
     environment:

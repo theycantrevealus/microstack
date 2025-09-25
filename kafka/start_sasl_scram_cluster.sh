@@ -31,6 +31,7 @@ export DIR_PROPERTIES=$WORKDIR/properties
 export DIR_JAR=$WORKDIR/jar
 export DIR_CONFIG=$WORKDIR/config
 export DIR_CERTIFICATES=$WORKDIR/certificates
+export DIR_SHELL=$WORKDIR/shell
 SSL_DIR=${DIR_CERTIFICATES}
 CA_DIR=${SSL_DIR}/ca
 CLIENT_DIR=${SSL_DIR}/client
@@ -46,6 +47,7 @@ lines=(
     "Properties         : ${DIR_PROPERTIES}"
     "JAR                : ${DIR_JAR}"
     "CONFIG             : ${DIR_CONFIG}"
+    "SHELLS             : ${DIR_SHELL}"
 )
 print_frame "${lines[@]}"
 
@@ -54,6 +56,7 @@ export CLIENT_PASS=clientpass
 
 rm -rf "${DIR_CERTIFICATES}"
 rm -rf "${DIR_PROPERTIES}"
+rm -rf "${DIR_SHELL}"
 rm -rf "${DIR_CONFIG}/*.conf"
 
 mkdir -p "${CA_DIR}" "${CLIENT_DIR}"
@@ -265,14 +268,56 @@ clean_ports() {
 start_docker() {
   custom_print "📦 Starting Service Group"
   # docker-compose -p "message-broker" -f "$PWD/$TARGET_COMPOSE" up -d --remove-orphans 2>/dev/null
-  docker-compose -p "message-broker" -f "$PWD/$TARGET_COMPOSE" up -d --remove-orphans
+  # docker-compose -p "message-broker" -f "$PWD/$TARGET_COMPOSE" up -d --remove-orphans
+  docker-compose -p "message-broker" -f "$PWD/$TARGET_COMPOSE" up kafka-format -d --remove-orphans
+  docker-compose -p "message-broker" -f "$PWD/$TARGET_COMPOSE" up kafka-broker-1, kafka-broker-2, kafka-broker-3 -d --remove-orphans
+  docker-compose -p "message-broker" -f "$PWD/$TARGET_COMPOSE" up kafka-init -d --remove-orphans
+  docker-compose -p "message-broker" -f "$PWD/$TARGET_COMPOSE" up kafka-format -d --remove-orphans
+  docker-compose -p "message-broker" -f "$PWD/$TARGET_COMPOSE" up kafka-format -d --remove-orphans
+  docker-compose -p "message-broker" -f "$PWD/$TARGET_COMPOSE" up kafka-format -d --remove-orphans
+  docker-compose -p "message-broker" -f "$PWD/$TARGET_COMPOSE" up kafka-format -d --remove-orphans
+  update_status "✅ OK"
+
+  custom_print "📦 Clear formatter"
+  docker-compose -p "message-broker" -f "$PWD/$TARGET_COMPOSE" rm -f -s kafka-format 2>/dev/null
+  docker-compose -p "message-broker" -f "$PWD/$TARGET_COMPOSE" rm -f -s kafka-init 2>/dev/null
+  docker-compose -p "message-broker" -f "$PWD/$TARGET_COMPOSE" rm -f -s schema-registry-healthcheck 2>/dev/null
+  docker-compose -p "message-broker" -f "$PWD/$TARGET_COMPOSE" rm -f -s prometheus-healthcheck 2>/dev/null
+  # echo -ne "\033[1A\033[2K"
+  # echo -ne "\033[1A\033[2K"
+  # echo -ne "\033[1A\033[2K"
+  # echo -ne "\033[1A\033[2K"
   update_status "✅ OK"
 }
 
 format_kafka() {
+  custom_print "📦 Create Kafka storage format command" 
+  mkdir -p "${DIR_SHELL}"
+  props_shell="${DIR_SHELL}/kafka-broker-format.sh"
+  : > "$props_shell"
+
+  echo "#!/bin/sh" >> "$props_shell"
+  echo "set -euo pipefail" >> "$props_shell"
+  echo 'for broker in 1 2 3; do' >> "$props_shell"
+  echo '  DATA_DIR="/var/lib/kafka/data-$broker"' >> "$props_shell"
+  echo '  META_DIR="/var/lib/kafka/data-$broker/meta.properties"' >> "$props_shell"
+  echo '  if [ -f "$META_DIR" ]; then' >> "$props_shell"
+  echo '    echo "✅ Broker $broker already formatted (found $META_DIR)"' >> "$props_shell"
+  echo '    continue' >> "$props_shell"
+  echo '  fi' >> "$props_shell"
+  echo '  chown -R appuser:appuser "$DATA_DIR"' >> "$props_shell"
+  echo '  kafka-storage format \' >> "$props_shell"
+  echo '    --ignore-formatted \' >> "$props_shell"
+  echo '    --cluster-id '"$CLUSTER_ID"' \' >> "$props_shell"
+  echo '    --config "/etc/kafka/properties/storage-$broker.properties"' >> "$props_shell"
+  echo 'done' >> "$props_shell"
+  chmod +x "$props_shell"
+  update_status "✅ OK"
+
   for broker in 1 2 3; do
-    custom_print "📦 Formatting Kafka storage [kafka-broker-${broker}]" 
-    props="${DIR_PROPERTIES}/storage-${broker}.properties" : > "$props"
+    custom_print "📦 Create Kafka storage format properties for [kafka-broker-${broker}]" 
+    props="${DIR_PROPERTIES}/storage-${broker}.properties"
+    : > "$props"
 
     echo "process.roles=broker,controller" >> "$props"
     echo "node.id=${broker}" >> "$props"
@@ -280,18 +325,18 @@ format_kafka() {
     echo "controller.quorum.voters=1@kafka-broker-1:9093,2@kafka-broker-2:9093,3@kafka-broker-3:9093" >> "$props"
     echo "listeners=SASL_SSL://:9092,PLAINTEXT://:29092,CONTROLLER://:9093" >> "$props"
     echo "listener.security.protocol.map=SASL_SSL:SASL_SSL,PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT" >> "$props"
-    echo "log.dirs=/var/lib/kafka/data" >> "$props"
+    echo "log.dirs=/var/lib/kafka/data-${broker}" >> "$props"
 
 
-    docker run --rm -i \
-      -v "${DIR_CERTIFICATES}/kafka-broker-${broker}:/etc/kafka/secrets" \
-      -v "${props}:/etc/kafka/storage.properties" \
-      confluentinc/cp-kafka:latest \
-      kafka-storage format \
-        --ignore-formatted \
-        --cluster-id "$CLUSTER_ID" \
-        --config /etc/kafka/storage.properties 2>/dev/null || true
-    echo -ne "\033[1A\033[2K"
+    # docker run --rm -i \
+    #   -v "${DIR_CERTIFICATES}/kafka-broker-${broker}:/etc/kafka/secrets" \
+    #   -v "${props}:/etc/kafka/storage.properties" \
+    #   confluentinc/cp-kafka:latest \
+    #   kafka-storage format \
+    #     --ignore-formatted \
+    #     --cluster-id "$CLUSTER_ID" \
+    #     --config /etc/kafka/storage.properties 2>/dev/null || true
+    # echo -ne "\033[1A\033[2K"
     update_status "✅ OK"
   done
 }
@@ -360,7 +405,7 @@ prepare_client_properties() {
   
   for broker in 1 2 3; do
     custom_print "📝 Prepare client properties for [kafka-broker-${broker}]"
-    docker cp "${props}" $(docker ps -qf "name=kafka-broker-${broker}"):/etc/kafka/properties/client-cli.properties  >/dev/null 2>&1
+    # docker cp "${props}" $(docker ps -qf "name=kafka-broker-${broker}"):/etc/kafka/properties/client-cli.properties  >/dev/null 2>&1
     update_status "✅ OK"
   done
 
@@ -418,13 +463,30 @@ create_test_topic() {
 
 create_scram_users() {
   custom_print "👤 Creating SCRAM users"
-  docker exec -e KAFKA_OPTS="" kafka-broker-1 kafka-configs \
-    --bootstrap-server kafka-broker-1:29092 \
-    --alter \
-    --add-config 'SCRAM-SHA-512=[password=confluent]' \
-    --entity-type users \
-    --entity-name kafkabroker 2>&1 || true
-  echo -ne "\033[1A\033[2K"
+
+  mkdir -p "${DIR_SHELL}"
+  props_shell="${DIR_SHELL}/kafka-create-user.sh"
+  : > "$props_shell"
+
+  echo "#!/bin/sh" >> "$props_shell"
+  echo "set -euo pipefail" >> "$props_shell"
+  echo "for i in 1 2 3 4 5; do" >> "$props_shell"
+  echo "  kafka-configs --bootstrap-server kafka-broker-1:29092 --alter --add-config 'SCRAM-SHA-512=[password=confluent]' --entity-type users --entity-name kafkabroker && break" >> "$props_shell"
+  echo "  echo \"Retrying in 5s...\"" >> "$props_shell"
+  echo "  sleep 5" >> "$props_shell"
+  echo "done" >> "$props_shell"
+  echo "echo \"✅ SCRAM user created\"" >> "$props_shell"
+  chmod +x "$props_shell"
+  
+  # docker exec -e KAFKA_OPTS="" kafka-broker-1 kafka-configs \
+  #   --bootstrap-server kafka-broker-1:29092 \
+  #   --alter \
+  #   --add-config 'SCRAM-SHA-512=[password=confluent]' \
+  #   --entity-type users \
+  #   --entity-name kafkabroker 2>&1 || true
+  # echo -ne "\033[1A\033[2K"
+
+
   update_status "✅ OK"
 }
 
@@ -549,12 +611,12 @@ verify_pem_bundle
 clean_ports
 generate_jaas kafkabroker confluent
 prepare_kafka_properties
-start_docker
 prepare_client_properties
-# prepare_control_properties
 format_kafka
-sleep 10
 create_scram_users
-create_test_topic
+start_docker
+
+# sleep 10
+# create_test_topic
 
 echo "✅ All done!"
