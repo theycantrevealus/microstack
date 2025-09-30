@@ -22,17 +22,22 @@ print_frame() {
     printf '%*s\n' $((max_len + 4)) '' | tr ' ' '*'
 }
 
+DOCKER_GROUP=confluent
+
 export PATH=$PATH:/home/takashitanaka/.vscode/extensions/redhat.java-1.45.0-linux-x64/jre/21.0.8-linux-x86_64/bin
 LAST_LINE=""
 # CLUSTER_ID=xwKCEeWJToei3os4N3JYfQ
+TARGET_COMPOSE="docker-compose-prod.yml"
 WORKDIR=${PWD}
-TARGET_COMPOSE="docker-compose.yml"
+export BROKER_PASS=brokerpass
+export CLIENT_PASS=clientpass
 export CLUSTER_ID=$(docker run --rm confluentinc/cp-kafka:latest kafka-storage random-uuid)
 export DIR_PROPERTIES=$WORKDIR/properties
 export DIR_JAR=$WORKDIR/jar
 export DIR_CONFIG=$WORKDIR/config
 export DIR_CERTIFICATES=$WORKDIR/certificates
 export DIR_SHELL=$WORKDIR/shell
+export DIR_PLUGINS=$WORKDIR/plugins
 SSL_DIR=${DIR_CERTIFICATES}
 CA_DIR=${SSL_DIR}/ca
 CLIENT_DIR=${SSL_DIR}/client
@@ -51,11 +56,9 @@ lines=(
     "JAR                : ${DIR_JAR}"
     "CONFIG             : ${DIR_CONFIG}"
     "SHELLS             : ${DIR_SHELL}"
+    "PLUGINS            : ${DIR_PLUGINS}"
 )
 print_frame "${lines[@]}"
-
-export BROKER_PASS=brokerpass
-export CLIENT_PASS=clientpass
 
 rm -rf "${DIR_CERTIFICATES}"
 rm -rf "${DIR_PROPERTIES}"
@@ -270,40 +273,40 @@ clean_ports() {
 
 start_docker() {
   custom_print "📦 Starting Service Group"
-  # docker-compose -p "message-broker" -f "$PWD/$TARGET_COMPOSE" up -d --remove-orphans 2>/dev/null
-  # docker-compose -p "message-broker" -f "$PWD/$TARGET_COMPOSE" up -d --remove-orphans
+  # docker-compose -p "$DOCKER_GROUP" -f "$PWD/$TARGET_COMPOSE" up -d --remove-orphans 2>/dev/null
+  # docker-compose -p "$DOCKER_GROUP" -f "$PWD/$TARGET_COMPOSE" up -d --remove-orphans
 
   # docker compose \
   #   --profile full \
-  #   -p "message-broker" \
+  #   -p "$DOCKER_GROUP" \
   #   -f "$PWD/$TARGET_COMPOSE" \
   #   up -d --remove-orphans
 
   docker compose \
     --profile "$PROFILE" \
-    -p "message-broker" \
+    -p "$DOCKER_GROUP" \
     -f "$PWD/$TARGET_COMPOSE" \
     up -d --remove-orphans
 
   update_status "✅ OK"
 
   custom_print "📦 Clear formatter"
-  docker-compose -p "message-broker" -f "$PWD/$TARGET_COMPOSE" rm -f -s kafka-format 2>/dev/null
+  docker-compose -p "$DOCKER_GROUP" -f "$PWD/$TARGET_COMPOSE" rm -f -s kafka-format 2>/dev/null
   echo -ne "\033[1A\033[2K"
   update_status "✅ OK"
 
   custom_print "📦 Clear initiator"
-  docker-compose -p "message-broker" -f "$PWD/$TARGET_COMPOSE" rm -f -s kafka-init 2>/dev/null
+  docker-compose -p "$DOCKER_GROUP" -f "$PWD/$TARGET_COMPOSE" rm -f -s kafka-init 2>/dev/null
   echo -ne "\033[1A\033[2K"
   update_status "✅ OK"
 
   custom_print "📦 Clear schema registry checker"
-  docker-compose -p "message-broker" -f "$PWD/$TARGET_COMPOSE" rm -f -s schema-registry-healthcheck 2>/dev/null
+  docker-compose -p "$DOCKER_GROUP" -f "$PWD/$TARGET_COMPOSE" rm -f -s schema-registry-healthcheck 2>/dev/null
   echo -ne "\033[1A\033[2K"
   update_status "✅ OK"
   
   custom_print "📦 Clear prometheus checker"
-  docker-compose -p "message-broker" -f "$PWD/$TARGET_COMPOSE" rm -f -s prometheus-healthcheck 2>/dev/null
+  docker-compose -p "$DOCKER_GROUP" -f "$PWD/$TARGET_COMPOSE" rm -f -s prometheus-healthcheck 2>/dev/null
   echo -ne "\033[1A\033[2K"
   update_status "✅ OK"
 }
@@ -404,6 +407,71 @@ prepare_kafka_properties() {
     echo "process.roles=broker,controller"  >> "$props"
 
   done
+
+  update_status "✅ OK"
+}
+
+prepare_flink_properties() {
+  custom_print "📝 Prepare flink configuration"
+  props="${DIR_CONFIG}/flink-conf.yaml"
+  rm -f "$props"
+
+  echo "jobmanager.rpc.address: flink-jobmanager" >> "$props"
+  # echo "jobmanager.rpc.address: localhost" >> "$props"
+  echo "rest.port: 9081" >> "$props"
+  echo "rest.bind-port: 9081" >> "$props"
+  echo "rest.address: flink-jobmanager" >> "$props"
+  echo "rest.bind-address: 0.0.0.0" >> "$props"
+  echo "taskmanager.numberOfTaskSlots: 2"  >> "$props"
+  echo "jobmanager.memory.process.size: 1024m"  >> "$props"
+  echo "taskmanager.memory.process.size: 2048m"  >> "$props"
+  echo "security.protocol: SASL_SSL"  >> "$props"
+  echo "sasl.mechanism: SCRAM-SHA-512"  >> "$props"
+  echo "sasl.jaas.config: org.apache.kafka.common.security.scram.ScramLoginModule required username="kafkabroker" password="confluent";"  >> "$props"
+  echo "ssl.truststore.location: /etc/kafka/certificates/client/kafka.client.truststore.jks"  >> "$props"
+  echo "ssl.truststore.password: ${CLIENT_PASS}"  >> "$props"
+  echo "ssl.endpoint.identification.algorithm:"  >> "$props"
+  update_status "✅ OK"
+
+  custom_print "📝 Generating Flink SQL Client defaults"
+  props="${DIR_CONFIG}/sql-client-defaults.yaml"
+  rm -f "$props"
+  echo "execution:" >> "$props"
+  echo "  planner: blink" >> "$props"
+  echo "  type: streaming" >> "$props"
+  echo "  result-mode: table" >> "$props"
+  echo "  parallelism: 1" >> "$props"
+  echo "" >> "$props"
+
+  echo "catalogs:" >> "$props"
+  echo "  - name: default_catalog" >> "$props"
+  echo "    type: generic_in_memory" >> "$props"
+  echo "" >> "$props"
+
+  echo "deployment:" >> "$props"
+  echo "  gateway:" >> "$props"
+  # echo "    type: embedded" >> "$props"
+  echo "    type: standalone" >> "$props"
+  echo "    cluster-host: flink-jobmanager" >> "$props"
+  echo "    cluster-port: 9081" >> "$props"
+  # echo "    address: flink-jobmanager" >> "$props"
+  # echo "    port: 9081" >> "$props"
+  echo "" >> "$props"
+
+  echo "tables:" >> "$props"
+  echo "  - name: mongo_keywords" >> "$props"
+  # echo "    type: source-table" >> "$props"
+  echo "    connector: kafka" >> "$props"
+  echo "    topic: mongo.SLRevamp2.keywords" >> "$props"
+  echo "    properties.bootstrap.servers: kafka-broker-1:9092,kafka-broker-2:9092,kafka-broker-3:9092" >> "$props"
+  echo "    properties.security.protocol: PLAINTEXT" >> "$props"
+  echo "    properties.sasl.mechanism: SCRAM-SHA-512" >> "$props"
+  echo "    properties.sasl.jaas.config: org.apache.kafka.common.security.scram.ScramLoginModule required username=\"kafkabroker\" password=\"confluent\";" >> "$props"
+  echo "    properties.ssl.truststore.location: /etc/kafka/certificates/client/kafka.client.truststore.jks" >> "$props"
+  echo "    properties.ssl.truststore.password: ${CLIENT_PASS}" >> "$props"
+  echo "    properties.ssl.endpoint.identification.algorithm: \"\"" >> "$props"
+  echo "    format: json" >> "$props"
+  echo "    scan.startup.mode: earliest-offset" >> "$props"
 
   update_status "✅ OK"
 }
@@ -577,15 +645,18 @@ generate_jaas() {
 
 clean_all() {
   custom_print "🧹 Cleaning up containers and volumes"
-  docker-compose -p "message-broker" -f "$PWD/$TARGET_COMPOSE" down -v >/dev/null 2>&1 || true
+  docker-compose -p "$DOCKER_GROUP" -f "$PWD/$TARGET_COMPOSE" down -v >/dev/null 2>&1 || true
   update_status "✅ OK"
+
+  # custom_print "🧹 Cleaning up containers and volumes"
+  # docker network create kafka-cluster-network >/dev/null 2>&1 || true
 }
 
 reset_cluster() {
   custom_print "🧹 Resetting entire Kafka cluster (data + certs + volumes)"
 
   # 1️⃣ Stop containers & remove volumes
-  docker-compose -p "message-broker" -f "$PWD/$TARGET_COMPOSE" down -v >/dev/null 2>&1 || true
+  docker-compose -p "$DOCKER_GROUP" -f "$PWD/$TARGET_COMPOSE" down -v >/dev/null 2>&1 || true
 
   # 2️⃣ Remove host-mounted Kafka data directories
   for broker in 1 2 3; do
@@ -630,6 +701,7 @@ clean_ports
 generate_jaas kafkabroker confluent
 prepare_kafka_properties
 prepare_client_properties
+prepare_flink_properties
 format_kafka
 create_scram_users
 start_docker

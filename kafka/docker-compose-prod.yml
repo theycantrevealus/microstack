@@ -1,0 +1,818 @@
+networks:
+  kafka-cluster-network:
+    driver: bridge
+volumes:
+  kafka-broker-1-data:
+  kafka-broker-2-data:
+  kafka-broker-3-data:
+
+services:
+  # =========== #
+  #  INITIATOR  #
+  # =========== #
+  kafka-format:
+    image: confluentinc/cp-kafka:latest
+    profiles: ["core", "full"]
+    user: "0"
+    volumes:
+      - ${DIR_PROPERTIES}:/etc/kafka/properties
+      - ${DIR_SHELL}:/usr/local/bin
+      - ${DIR_CERTIFICATES}:/etc/kafka/secrets
+      - kafka-broker-1-data:/var/lib/kafka/data-1
+      - kafka-broker-2-data:/var/lib/kafka/data-2
+      - kafka-broker-3-data:/var/lib/kafka/data-3
+    command: ["/usr/local/bin/kafka-broker-format.sh"]
+    restart: "no"
+
+  kafka-init:
+    image: confluentinc/cp-kafka:latest
+    profiles: ["core", "full"]
+    user: "0"
+    networks:
+      - kafka-cluster-network
+    depends_on:
+      kafka-broker-1:
+        condition: service_started
+      kafka-broker-2:
+        condition: service_started
+      kafka-broker-3:
+        condition: service_started
+    command: ["/usr/local/bin/kafka-create-user.sh"]
+    restart: "no"
+    volumes:
+      - ${DIR_SHELL}:/usr/local/bin
+
+  schema-registry-healthcheck:
+    image: alpine/curl:8.2.1
+    profiles: ["core", "full"]
+    container_name: schema-registry-healthcheck
+    networks:
+      - kafka-cluster-network
+    depends_on:
+      schema-registry:
+        condition: service_started
+    command: >
+      sh -c "
+        i=0
+        while [ $$i -lt 60 ]; do
+          if curl -fsS http://schema-registry:8081/mode >/dev/null; then
+            echo '✅ Schema Registry is ready'
+            exit 0
+          fi
+          echo '⏳ Schema Registry not ready, retrying...'
+          i=$$((i+1))
+          sleep 5
+        done
+        echo '❌ Schema Registry failed to become ready in time'
+        exit 1
+      "
+    restart: "no"
+
+  prometheus-healthcheck:
+    image: alpine/curl:8.2.1
+    profiles: ["full"]
+    container_name: prometheus-healthcheck
+    networks:
+      - kafka-cluster-network
+    depends_on:
+      prometheus:
+        condition: service_started
+    command: >
+      sh -c "
+        i=0
+        while [ $$i -lt 60 ]; do
+          if curl -fsS http://prometheus:9090/-/healthy >/dev/null; then
+            exit 0
+          fi
+          echo 'Prometheus not ready, retrying...'
+          i=$$((i+1))
+          sleep 5
+        done
+        exit 1
+      "
+    restart: "no"
+
+  # ========= #
+  #  BROKERS  #
+  # ========= #
+  kafka-broker-1:
+    image: confluentinc/cp-server:latest
+    profiles: ["core", "full"]
+    container_name: kafka-broker-1
+    hostname: kafka-broker-1
+    depends_on:
+      kafka-format:
+        condition: service_completed_successfully
+      prometheus-healthcheck:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "/usr/bin/kafka-broker-api-versions",
+          "--bootstrap-server",
+          "localhost:29092",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+    restart: on-failure
+    networks:
+      - kafka-cluster-network
+    ports:
+      - "19094:9094"
+      - "19192:29092"
+      - "8401:8401"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    stop_grace_period: 30s
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: SASL_SSL:SASL_SSL,PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT,EXTERNAL:SASL_SSL
+      KAFKA_ADVERTISED_LISTENERS: SASL_SSL://kafka-broker-1:9092,PLAINTEXT://kafka-broker-1:29092,EXTERNAL://localhost:19094
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_CONFLUENT_LICENSE_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_CONFLUENT_BALANCER_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_JMX_PORT: 8401
+      KAFKA_JMX_HOSTNAME: localhost
+      KAFKA_CONFLUENT_SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      KAFKA_METRIC_REPORTERS: io.confluent.telemetry.reporter.TelemetryReporter
+      CONFLUENT_METRICS_REPORTER_BOOTSTRAP_SERVERS: kafka-broker-1:29092
+      CONFLUENT_METRICS_REPORTER_TOPIC_REPLICAS: 1
+      KAFKA_PROCESS_ROLES: "broker,controller"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka-broker-1:9093,2@kafka-broker-2:9093,3@kafka-broker-3:9093"
+      KAFKA_LISTENERS: SASL_SSL://:9092,PLAINTEXT://:29092,CONTROLLER://:9093,EXTERNAL://:9094
+      KAFKA_INTER_BROKER_LISTENER_NAME: "SASL_SSL"
+      KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+      KAFKA_LOG_DIRS: "/tmp/kraft-combined-logs"
+      CONFLUENT_METRICS_ENABLE: "true"
+      CONFLUENT_SUPPORT_CUSTOMER_ID: "anonymous"
+      CLUSTER_ID: ${CLUSTER_ID}
+      KAFKA_CONFLUENT_TELEMETRY_EXPORTER_C3PLUSPLUS_TYPE: "http"
+      KAFKA_CONFLUENT_TELEMETRY_EXPORTER_C3PLUSPLUS_ENABLED: "true"
+      KAFKA_CONFLUENT_TELEMETRY_EXPORTER_C3PLUSPLUS_METRICS_INCLUDE: "io.confluent.kafka.server.request.(?!.*delta).*|io.confluent.kafka.server.server.broker.state|io.confluent.kafka.server.replica.manager.leader.count|io.confluent.kafka.server.request.queue.size|io.confluent.kafka.server.broker.topic.failed.produce.requests.rate.1.min|io.confluent.kafka.server.tier.archiver.total.lag|io.confluent.kafka.server.request.total.time.ms.p99|io.confluent.kafka.server.broker.topic.failed.fetch.requests.rate.1.min|io.confluent.kafka.server.broker.topic.total.fetch.requests.rate.1.min|io.confluent.kafka.server.partition.caught.up.replicas.count|io.confluent.kafka.server.partition.observer.replicas.count|io.confluent.kafka.server.tier.tasks.num.partitions.in.error|io.confluent.kafka.server.broker.topic.bytes.out.rate.1.min|io.confluent.kafka.server.request.total.time.ms.p95|io.confluent.kafka.server.controller.active.controller.count|io.confluent.kafka.server.request.total.time.ms.p999|io.confluent.kafka.server.controller.active.broker.count|io.confluent.kafka.server.request.handler.pool.request.handler.avg.idle.percent.rate.1.min|io.confluent.kafka.server.controller.unclean.leader.elections.rate.1.min|io.confluent.kafka.server.replica.manager.partition.count|io.confluent.kafka.server.controller.unclean.leader.elections.total|io.confluent.kafka.server.partition.replicas.count|io.confluent.kafka.server.broker.topic.total.produce.requests.rate.1.min|io.confluent.kafka.server.controller.offline.partitions.count|io.confluent.kafka.server.socket.server.network.processor.avg.idle.percent|io.confluent.kafka.server.partition.under.replicated|io.confluent.kafka.server.log.log.start.offset|io.confluent.kafka.server.log.tier.size|io.confluent.kafka.server.log.size|io.confluent.kafka.server.tier.fetcher.bytes.fetched.total|io.confluent.kafka.server.request.total.time.ms.p50|io.confluent.kafka.server.tenant.consumer.lag.offsets|io.confluent.kafka.server.log.log.end.offset|io.confluent.kafka.server.broker.topic.bytes.in.rate.1.min|io.confluent.kafka.server.partition.under.min.isr|io.confluent.kafka.server.partition.in.sync.replicas.count|io.confluent.telemetry.http.exporter.batches.dropped|io.confluent.telemetry.http.exporter.items.total|io.confluent.telemetry.http.exporter.items.succeeded|io.confluent.telemetry.http.exporter.send.time.total.millis|io.confluent.kafka.server.controller.leader.election.rate.(?!.*delta).*|io.confluent.telemetry.http.exporter.batches.failed"
+      KAFKA_CONFLUENT_TELEMETRY_EXPORTER_C3PLUSPLUS_CLIENT_BASE_URL: "http://prometheus:9090/api/v1/otlp"
+      KAFKA_CONFLUENT_TELEMETRY_EXPORTER_C3PLUSPLUS_CLIENT_COMPRESSION: "gzip"
+      KAFKA_CONFLUENT_TELEMETRY_EXPORTER_C3PLUSPLUS_API_KEY: "dummy"
+      KAFKA_CONFLUENT_TELEMETRY_EXPORTER_C3PLUSPLUS_API_SECRET: "dummy"
+      KAFKA_CONFLUENT_TELEMETRY_EXPORTER_C3PLUSPLUS_BUFFER_PENDING_BATCHES_MAX: "80"
+      KAFKA_CONFLUENT_TELEMETRY_EXPORTER_C3PLUSPLUS_BUFFER_BATCH_ITEMS_MAX: "4000"
+      KAFKA_CONFLUENT_TELEMETRY_EXPORTER_C3PLUSPLUS_BUFFER_INFLIGHT_SUBMISSIONS_MAX: "10"
+      KAFKA_CONFLUENT_TELEMETRY_METRICS_COLLECTOR_INTERVAL_MS: "60000"
+      KAFKA_CONFLUENT_TELEMETRY_REMOTECONFIG_CONFLUENT_ENABLED: "false"
+      KAFKA_CONFLUENT_CONSUMER_LAG_EMITTER_ENABLED: "true"
+      KAFKA_HEAP_OPTS: "-Xms1G -Xmx2G"
+      KAFKA_NUM_NETWORK_THREADS: 1
+      KAFKA_NUM_IO_THREADS: 1
+      KAFKA_BACKGROUND_THREADS: 1
+      KAFKA_NUM_PARTITIONS: 1
+      KAFKA_DEFAULT_REPLICATION_FACTOR: 1
+      KAFKA_LOG_RETENTION_HOURS: 12
+      KAFKA_LOG_SEGMENT_BYTES: 1073741824
+
+      KAFKA_SASL_ENABLED_MECHANISMS: SCRAM-SHA-512
+      KAFKA_SASL_MECHANISM_INTER_BROKER_PROTOCOL: SCRAM-SHA-512
+      KAFKA_DEFAULT_USER: kafkabroker
+      KAFKA_DEFAULT_PASSWORD: confluent
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_MIN_INSYNC_REPLICAS: 1
+      KAFKA_SSL_KEYSTORE_FILENAME: kafka.kafka-broker-1.keystore.jks
+      KAFKA_SSL_KEYSTORE_CREDENTIALS: kafka-broker-1_keystore_creds
+      KAFKA_SSL_KEY_CREDENTIALS: kafka-broker-1_sslkey_creds
+      KAFKA_SSL_TRUSTSTORE_FILENAME: kafka.kafka-broker-1.truststore.jks
+      KAFKA_SSL_TRUSTSTORE_CREDENTIALS: kafka-broker-1_truststore_creds
+      KAFKA_SSL_CLIENT_AUTH: requested
+      KAFKA_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM: HTTPS
+      KAFKA_OVERRIDE_INTER_BROKER_LISTENER_NAME: SASL_SSL
+      KAFKA_CONFLUENT_SUPPORT_METRICS_ENABLE: "false"
+      KAFKA_CONFLUENT_TELEMETRY_ENABLE: "false"
+      KAFKA_OPTS: "-Dlog4j2.disable.jmx=true -Dlog4j2.formatMsgNoLookups=true -Djava.security.auth.login.config=/etc/kafka/config/kafka_server_jaas.conf"
+      # KAFKA_OPTS: "-Dlog4j2.disable.jmx=true -Dlog4j2.formatMsgNoLookups=true -Djava.security.auth.login.config=/etc/kafka/config/kafka_server_jaas.conf -javaagent:/opt/jmx/jmx_prometheus_javaagent-1.4.0.jar=9401:/opt/jmx/jmx.kafka.yml"
+
+    volumes:
+      - ${DIR_PROPERTIES}:/etc/kafka/properties
+      - ${DIR_CERTIFICATES}/kafka-broker-1:/etc/kafka/secrets
+      - ${DIR_JAR}/jmx_prometheus_javaagent-1.4.0.jar:/opt/jmx/jmx_prometheus_javaagent-1.4.0.jar
+      - ${DIR_CONFIG}/kafka_server_jaas.conf:/etc/kafka/config/kafka_server_jaas.conf
+      - ${DIR_CONFIG}/jmx.kafka.yml:/opt/jmx/jmx.kafka.yml
+      - kafka-broker-1-data:/var/lib/kafka/data-1
+
+  kafka-broker-2:
+    image: confluentinc/cp-server:latest
+    profiles: ["core", "full"]
+    container_name: kafka-broker-2
+    hostname: kafka-broker-2
+    depends_on:
+      kafka-format:
+        condition: service_completed_successfully
+      prometheus-healthcheck:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "/usr/bin/kafka-broker-api-versions",
+          "--bootstrap-server",
+          "localhost:29092",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+    restart: on-failure
+    networks:
+      - kafka-cluster-network
+    ports:
+      - "29094:9094"
+      - "29192:29092"
+      - "8402:8402"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    stop_grace_period: 30s
+    environment:
+      KAFKA_NODE_ID: 2
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: SASL_SSL:SASL_SSL,PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT,EXTERNAL:SASL_SSL
+      KAFKA_ADVERTISED_LISTENERS: SASL_SSL://kafka-broker-2:9092,PLAINTEXT://kafka-broker-2:29092,EXTERNAL://localhost:29094
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_CONFLUENT_LICENSE_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_CONFLUENT_BALANCER_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_JMX_PORT: 8402
+      KAFKA_JMX_HOSTNAME: localhost
+      KAFKA_CONFLUENT_SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      KAFKA_METRIC_REPORTERS: io.confluent.telemetry.reporter.TelemetryReporter
+      CONFLUENT_METRICS_REPORTER_BOOTSTRAP_SERVERS: kafka-broker-2:29092
+      CONFLUENT_METRICS_REPORTER_TOPIC_REPLICAS: 1
+      KAFKA_PROCESS_ROLES: "broker,controller"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka-broker-1:9093,2@kafka-broker-2:9093,3@kafka-broker-3:9093"
+      KAFKA_LISTENERS: SASL_SSL://:9092,PLAINTEXT://:29092,CONTROLLER://:9093,EXTERNAL://:9094
+      KAFKA_INTER_BROKER_LISTENER_NAME: "SASL_SSL"
+      KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+      KAFKA_LOG_DIRS: "/tmp/kraft-combined-logs"
+      CONFLUENT_METRICS_ENABLE: "true"
+      CONFLUENT_SUPPORT_CUSTOMER_ID: "anonymous"
+      CLUSTER_ID: ${CLUSTER_ID}
+      KAFKA_CONFLUENT_TELEMETRY_EXPORTER_C3PLUSPLUS_TYPE: "http"
+      KAFKA_CONFLUENT_TELEMETRY_EXPORTER_C3PLUSPLUS_ENABLED: "true"
+      KAFKA_CONFLUENT_TELEMETRY_EXPORTER_C3PLUSPLUS_METRICS_INCLUDE: "io.confluent.kafka.server.request.(?!.*delta).*|io.confluent.kafka.server.server.broker.state|io.confluent.kafka.server.replica.manager.leader.count|io.confluent.kafka.server.request.queue.size|io.confluent.kafka.server.broker.topic.failed.produce.requests.rate.1.min|io.confluent.kafka.server.tier.archiver.total.lag|io.confluent.kafka.server.request.total.time.ms.p99|io.confluent.kafka.server.broker.topic.failed.fetch.requests.rate.1.min|io.confluent.kafka.server.broker.topic.total.fetch.requests.rate.1.min|io.confluent.kafka.server.partition.caught.up.replicas.count|io.confluent.kafka.server.partition.observer.replicas.count|io.confluent.kafka.server.tier.tasks.num.partitions.in.error|io.confluent.kafka.server.broker.topic.bytes.out.rate.1.min|io.confluent.kafka.server.request.total.time.ms.p95|io.confluent.kafka.server.controller.active.controller.count|io.confluent.kafka.server.request.total.time.ms.p999|io.confluent.kafka.server.controller.active.broker.count|io.confluent.kafka.server.request.handler.pool.request.handler.avg.idle.percent.rate.1.min|io.confluent.kafka.server.controller.unclean.leader.elections.rate.1.min|io.confluent.kafka.server.replica.manager.partition.count|io.confluent.kafka.server.controller.unclean.leader.elections.total|io.confluent.kafka.server.partition.replicas.count|io.confluent.kafka.server.broker.topic.total.produce.requests.rate.1.min|io.confluent.kafka.server.controller.offline.partitions.count|io.confluent.kafka.server.socket.server.network.processor.avg.idle.percent|io.confluent.kafka.server.partition.under.replicated|io.confluent.kafka.server.log.log.start.offset|io.confluent.kafka.server.log.tier.size|io.confluent.kafka.server.log.size|io.confluent.kafka.server.tier.fetcher.bytes.fetched.total|io.confluent.kafka.server.request.total.time.ms.p50|io.confluent.kafka.server.tenant.consumer.lag.offsets|io.confluent.kafka.server.log.log.end.offset|io.confluent.kafka.server.broker.topic.bytes.in.rate.1.min|io.confluent.kafka.server.partition.under.min.isr|io.confluent.kafka.server.partition.in.sync.replicas.count|io.confluent.telemetry.http.exporter.batches.dropped|io.confluent.telemetry.http.exporter.items.total|io.confluent.telemetry.http.exporter.items.succeeded|io.confluent.telemetry.http.exporter.send.time.total.millis|io.confluent.kafka.server.controller.leader.election.rate.(?!.*delta).*|io.confluent.telemetry.http.exporter.batches.failed"
+      KAFKA_CONFLUENT_TELEMETRY_EXPORTER_C3PLUSPLUS_CLIENT_BASE_URL: "http://prometheus:9090/api/v1/otlp"
+      KAFKA_CONFLUENT_TELEMETRY_EXPORTER_C3PLUSPLUS_CLIENT_COMPRESSION: "gzip"
+      KAFKA_CONFLUENT_TELEMETRY_EXPORTER_C3PLUSPLUS_API_KEY: "dummy"
+      KAFKA_CONFLUENT_TELEMETRY_EXPORTER_C3PLUSPLUS_API_SECRET: "dummy"
+      KAFKA_CONFLUENT_TELEMETRY_EXPORTER_C3PLUSPLUS_BUFFER_PENDING_BATCHES_MAX: "80"
+      KAFKA_CONFLUENT_TELEMETRY_EXPORTER_C3PLUSPLUS_BUFFER_BATCH_ITEMS_MAX: "4000"
+      KAFKA_CONFLUENT_TELEMETRY_EXPORTER_C3PLUSPLUS_BUFFER_INFLIGHT_SUBMISSIONS_MAX: "10"
+      KAFKA_CONFLUENT_TELEMETRY_METRICS_COLLECTOR_INTERVAL_MS: "60000"
+      KAFKA_CONFLUENT_TELEMETRY_REMOTECONFIG_CONFLUENT_ENABLED: "false"
+      KAFKA_CONFLUENT_CONSUMER_LAG_EMITTER_ENABLED: "true"
+      KAFKA_HEAP_OPTS: "-Xms1G -Xmx2G"
+      KAFKA_NUM_NETWORK_THREADS: 1
+      KAFKA_NUM_IO_THREADS: 1
+      KAFKA_BACKGROUND_THREADS: 1
+      KAFKA_NUM_PARTITIONS: 1
+      KAFKA_DEFAULT_REPLICATION_FACTOR: 1
+      KAFKA_LOG_RETENTION_HOURS: 12
+      KAFKA_LOG_SEGMENT_BYTES: 1073741824
+
+      KAFKA_SASL_ENABLED_MECHANISMS: SCRAM-SHA-512
+      KAFKA_SASL_MECHANISM_INTER_BROKER_PROTOCOL: SCRAM-SHA-512
+      KAFKA_DEFAULT_USER: kafkabroker
+      KAFKA_DEFAULT_PASSWORD: confluent
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_MIN_INSYNC_REPLICAS: 1
+      KAFKA_SSL_KEYSTORE_FILENAME: kafka.kafka-broker-2.keystore.jks
+      KAFKA_SSL_KEYSTORE_CREDENTIALS: kafka-broker-2_keystore_creds
+      KAFKA_SSL_KEY_CREDENTIALS: kafka-broker-2_sslkey_creds
+      KAFKA_SSL_TRUSTSTORE_FILENAME: kafka.kafka-broker-2.truststore.jks
+      KAFKA_SSL_TRUSTSTORE_CREDENTIALS: kafka-broker-2_truststore_creds
+      KAFKA_SSL_CLIENT_AUTH: requested
+      KAFKA_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM: HTTPS
+      KAFKA_OVERRIDE_INTER_BROKER_LISTENER_NAME: SASL_SSL
+      KAFKA_CONFLUENT_SUPPORT_METRICS_ENABLE: "false"
+      KAFKA_CONFLUENT_TELEMETRY_ENABLE: "false"
+      KAFKA_OPTS: "-Dlog4j2.disable.jmx=true -Dlog4j2.formatMsgNoLookups=true -Djava.security.auth.login.config=/etc/kafka/config/kafka_server_jaas.conf"
+
+    volumes:
+      - ${DIR_PROPERTIES}:/etc/kafka/properties
+      - ${DIR_CERTIFICATES}/kafka-broker-2:/etc/kafka/secrets
+      - ${DIR_JAR}/jmx_prometheus_javaagent-1.4.0.jar:/opt/jmx/jmx_prometheus_javaagent-1.4.0.jar
+      - ${DIR_CONFIG}/kafka_server_jaas.conf:/etc/kafka/config/kafka_server_jaas.conf
+      - ${DIR_CONFIG}/jmx.kafka.yml:/opt/jmx/jmx.kafka.yml
+      - kafka-broker-2-data:/var/lib/kafka/data-2
+
+  kafka-broker-3:
+    image: confluentinc/cp-server:latest
+    profiles: ["core", "full"]
+    container_name: kafka-broker-3
+    hostname: kafka-broker-3
+    depends_on:
+      kafka-format:
+        condition: service_completed_successfully
+      prometheus-healthcheck:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "/usr/bin/kafka-broker-api-versions",
+          "--bootstrap-server",
+          "localhost:29092",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+    restart: on-failure
+    networks:
+      - kafka-cluster-network
+    ports:
+      - "39094:9094"
+      - "39192:29092"
+      - "8403:8403"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    stop_grace_period: 30s
+    environment:
+      KAFKA_NODE_ID: 3
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: SASL_SSL:SASL_SSL,PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT,EXTERNAL:SASL_SSL
+      KAFKA_ADVERTISED_LISTENERS: SASL_SSL://kafka-broker-3:9092,PLAINTEXT://kafka-broker-3:29092,EXTERNAL://localhost:39094
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_CONFLUENT_LICENSE_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_CONFLUENT_BALANCER_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_JMX_PORT: 8403
+      KAFKA_JMX_HOSTNAME: localhost
+      KAFKA_CONFLUENT_SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      KAFKA_METRIC_REPORTERS: io.confluent.telemetry.reporter.TelemetryReporter
+      CONFLUENT_METRICS_REPORTER_BOOTSTRAP_SERVERS: kafka-broker-3:29092
+      CONFLUENT_METRICS_REPORTER_TOPIC_REPLICAS: 1
+      KAFKA_PROCESS_ROLES: "broker,controller"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka-broker-1:9093,2@kafka-broker-2:9093,3@kafka-broker-3:9093"
+      KAFKA_LISTENERS: SASL_SSL://:9092,PLAINTEXT://:29092,CONTROLLER://:9093,EXTERNAL://:9094
+      KAFKA_INTER_BROKER_LISTENER_NAME: "SASL_SSL"
+      KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+      KAFKA_LOG_DIRS: "/tmp/kraft-combined-logs"
+      CONFLUENT_METRICS_ENABLE: "true"
+      CONFLUENT_SUPPORT_CUSTOMER_ID: "anonymous"
+      CLUSTER_ID: ${CLUSTER_ID}
+      KAFKA_CONFLUENT_TELEMETRY_EXPORTER_C3PLUSPLUS_TYPE: "http"
+      KAFKA_CONFLUENT_TELEMETRY_EXPORTER_C3PLUSPLUS_ENABLED: "true"
+      KAFKA_CONFLUENT_TELEMETRY_EXPORTER_C3PLUSPLUS_METRICS_INCLUDE: "io.confluent.kafka.server.request.(?!.*delta).*|io.confluent.kafka.server.server.broker.state|io.confluent.kafka.server.replica.manager.leader.count|io.confluent.kafka.server.request.queue.size|io.confluent.kafka.server.broker.topic.failed.produce.requests.rate.1.min|io.confluent.kafka.server.tier.archiver.total.lag|io.confluent.kafka.server.request.total.time.ms.p99|io.confluent.kafka.server.broker.topic.failed.fetch.requests.rate.1.min|io.confluent.kafka.server.broker.topic.total.fetch.requests.rate.1.min|io.confluent.kafka.server.partition.caught.up.replicas.count|io.confluent.kafka.server.partition.observer.replicas.count|io.confluent.kafka.server.tier.tasks.num.partitions.in.error|io.confluent.kafka.server.broker.topic.bytes.out.rate.1.min|io.confluent.kafka.server.request.total.time.ms.p95|io.confluent.kafka.server.controller.active.controller.count|io.confluent.kafka.server.request.total.time.ms.p999|io.confluent.kafka.server.controller.active.broker.count|io.confluent.kafka.server.request.handler.pool.request.handler.avg.idle.percent.rate.1.min|io.confluent.kafka.server.controller.unclean.leader.elections.rate.1.min|io.confluent.kafka.server.replica.manager.partition.count|io.confluent.kafka.server.controller.unclean.leader.elections.total|io.confluent.kafka.server.partition.replicas.count|io.confluent.kafka.server.broker.topic.total.produce.requests.rate.1.min|io.confluent.kafka.server.controller.offline.partitions.count|io.confluent.kafka.server.socket.server.network.processor.avg.idle.percent|io.confluent.kafka.server.partition.under.replicated|io.confluent.kafka.server.log.log.start.offset|io.confluent.kafka.server.log.tier.size|io.confluent.kafka.server.log.size|io.confluent.kafka.server.tier.fetcher.bytes.fetched.total|io.confluent.kafka.server.request.total.time.ms.p50|io.confluent.kafka.server.tenant.consumer.lag.offsets|io.confluent.kafka.server.log.log.end.offset|io.confluent.kafka.server.broker.topic.bytes.in.rate.1.min|io.confluent.kafka.server.partition.under.min.isr|io.confluent.kafka.server.partition.in.sync.replicas.count|io.confluent.telemetry.http.exporter.batches.dropped|io.confluent.telemetry.http.exporter.items.total|io.confluent.telemetry.http.exporter.items.succeeded|io.confluent.telemetry.http.exporter.send.time.total.millis|io.confluent.kafka.server.controller.leader.election.rate.(?!.*delta).*|io.confluent.telemetry.http.exporter.batches.failed"
+      KAFKA_CONFLUENT_TELEMETRY_EXPORTER_C3PLUSPLUS_CLIENT_BASE_URL: "http://prometheus:9090/api/v1/otlp"
+      KAFKA_CONFLUENT_TELEMETRY_EXPORTER_C3PLUSPLUS_CLIENT_COMPRESSION: "gzip"
+      KAFKA_CONFLUENT_TELEMETRY_EXPORTER_C3PLUSPLUS_API_KEY: "dummy"
+      KAFKA_CONFLUENT_TELEMETRY_EXPORTER_C3PLUSPLUS_API_SECRET: "dummy"
+      KAFKA_CONFLUENT_TELEMETRY_EXPORTER_C3PLUSPLUS_BUFFER_PENDING_BATCHES_MAX: "80"
+      KAFKA_CONFLUENT_TELEMETRY_EXPORTER_C3PLUSPLUS_BUFFER_BATCH_ITEMS_MAX: "4000"
+      KAFKA_CONFLUENT_TELEMETRY_EXPORTER_C3PLUSPLUS_BUFFER_INFLIGHT_SUBMISSIONS_MAX: "10"
+      KAFKA_CONFLUENT_TELEMETRY_METRICS_COLLECTOR_INTERVAL_MS: "60000"
+      KAFKA_CONFLUENT_TELEMETRY_REMOTECONFIG_CONFLUENT_ENABLED: "false"
+      KAFKA_CONFLUENT_CONSUMER_LAG_EMITTER_ENABLED: "true"
+      KAFKA_HEAP_OPTS: "-Xms1G -Xmx2G"
+      KAFKA_NUM_NETWORK_THREADS: 1
+      KAFKA_NUM_IO_THREADS: 1
+      KAFKA_BACKGROUND_THREADS: 1
+      KAFKA_NUM_PARTITIONS: 1
+      KAFKA_DEFAULT_REPLICATION_FACTOR: 1
+      KAFKA_LOG_RETENTION_HOURS: 12
+      KAFKA_LOG_SEGMENT_BYTES: 1073741824
+
+      KAFKA_SASL_ENABLED_MECHANISMS: SCRAM-SHA-512
+      KAFKA_SASL_MECHANISM_INTER_BROKER_PROTOCOL: SCRAM-SHA-512
+      KAFKA_DEFAULT_USER: kafkabroker
+      KAFKA_DEFAULT_PASSWORD: confluent
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_MIN_INSYNC_REPLICAS: 1
+      KAFKA_SSL_KEYSTORE_FILENAME: kafka.kafka-broker-3.keystore.jks
+      KAFKA_SSL_KEYSTORE_CREDENTIALS: kafka-broker-3_keystore_creds
+      KAFKA_SSL_KEY_CREDENTIALS: kafka-broker-3_sslkey_creds
+      KAFKA_SSL_TRUSTSTORE_FILENAME: kafka.kafka-broker-3.truststore.jks
+      KAFKA_SSL_TRUSTSTORE_CREDENTIALS: kafka-broker-3_truststore_creds
+      KAFKA_SSL_CLIENT_AUTH: requested
+      KAFKA_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM: HTTPS
+      KAFKA_OVERRIDE_INTER_BROKER_LISTENER_NAME: SASL_SSL
+      KAFKA_CONFLUENT_SUPPORT_METRICS_ENABLE: "false"
+      KAFKA_CONFLUENT_TELEMETRY_ENABLE: "false"
+      KAFKA_OPTS: "-Dlog4j2.disable.jmx=true -Dlog4j2.formatMsgNoLookups=true -Djava.security.auth.login.config=/etc/kafka/config/kafka_server_jaas.conf"
+
+    volumes:
+      - ${DIR_PROPERTIES}:/etc/kafka/properties
+      - ${DIR_CERTIFICATES}/kafka-broker-3:/etc/kafka/secrets
+      - ${DIR_JAR}/jmx_prometheus_javaagent-1.4.0.jar:/opt/jmx/jmx_prometheus_javaagent-1.4.0.jar
+      - ${DIR_CONFIG}/kafka_server_jaas.conf:/etc/kafka/config/kafka_server_jaas.conf
+      - ${DIR_CONFIG}/jmx.kafka.yml:/opt/jmx/jmx.kafka.yml
+      - kafka-broker-3-data:/var/lib/kafka/data-3
+
+  prometheus:
+    image: confluentinc/cp-enterprise-prometheus:2.2.0
+    profiles: ["full"]
+    hostname: cp-enterprise-prometheus
+    container_name: prometheus
+    cpus: 0.25
+    mem_limit: 256m
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9090 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+    depends_on:
+      kafka-format:
+        condition: service_completed_successfully
+    networks:
+      - kafka-cluster-network
+    volumes:
+      - ${DIR_CONFIG}:/mnt/config
+    ports:
+      - "9090:9090"
+    environment:
+      CONFIG_PATH: "/mnt/config"
+      SHOULD_LOG_TO_FILE: "false"
+
+  alertmanager:
+    image: confluentinc/cp-enterprise-alertmanager:2.2.0
+    profiles: ["full"]
+    hostname: cp-enterprise-alertmanager
+    restart: on-failure
+    container_name: alertmanager
+    cpus: 0.25
+    mem_limit: 128m
+    networks:
+      - kafka-cluster-network
+    depends_on:
+      prometheus-healthcheck:
+        condition: service_completed_successfully
+      kafka-broker-1:
+        condition: service_healthy
+      kafka-broker-2:
+        condition: service_healthy
+      kafka-broker-3:
+        condition: service_healthy
+    volumes:
+      - ${DIR_CONFIG}:/mnt/config
+    ports:
+      - "9093:9093"
+    environment:
+      CONFIG_PATH: "/mnt/config"
+      SHOULD_LOG_TO_FILE: "false"
+
+  schema-registry:
+    image: confluentinc/cp-schema-registry:8.0.0
+    profiles: ["core", "full"]
+    hostname: schema-registry
+    cpus: 1
+    mem_limit: 1024mb
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8081 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    container_name: schema-registry
+    restart: on-failure
+    networks:
+      - kafka-cluster-network
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+    ports:
+      - "8081:8081"
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: "kafka-broker-1:29092,kafka-broker-2:29092,kafka-broker-3:29092"
+      SCHEMA_REGISTRY_KAFKASTORE_SECURITY_PROTOCOL: PLAINTEXT
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+      SCHEMA_REGISTRY_KAFKASTORE_SASL_MECHANISM: SCRAM-SHA-512
+      SCHEMA_REGISTRY_KAFKASTORE_SASL_JAAS_CONFIG: 'org.apache.kafka.common.security.scram.ScramLoginModule required username="kafkabroker" password="confluent";'
+      SCHEMA_REGISTRY_KAFKASTORE_SSL_TRUSTSTORE_LOCATION: /etc/kafka/certificates/client/kafka.client.truststore.jks
+      SCHEMA_REGISTRY_KAFKASTORE_SSL_TRUSTSTORE_PASSWORD: ${CLIENT_PASS}
+
+      SCHEMA_REGISTRY_HEAP_OPTS: "-Xmx128M -Xms64M"
+    volumes:
+      - ${DIR_CERTIFICATES}:/etc/kafka/certificates
+
+  control-center:
+    image: confluentinc/cp-enterprise-control-center-next-gen:2.2.0
+    profiles: ["full"]
+    container_name: control-center
+    hostname: control-center
+    cpus: 1.0
+    mem_limit: 1g
+    restart: on-failure
+    depends_on:
+      kafka-broker-1:
+        condition: service_healthy
+      kafka-broker-2:
+        condition: service_healthy
+      kafka-broker-3:
+        condition: service_healthy
+      schema-registry-healthcheck:
+        condition: service_completed_successfully
+      connect:
+        condition: service_started
+      ksqldb-server:
+        condition: service_started
+      prometheus-healthcheck:
+        condition: service_completed_successfully
+      alertmanager:
+        condition: service_started
+    networks:
+      - kafka-cluster-network
+    ports:
+      - "9021:9021"
+    environment:
+      CONFLUENT_CONTROL_CENTER_ID: "cc-1"
+      CONTROL_CENTER_REPLICATION_FACTOR: 1
+      CONTROL_CENTER_INTERNAL_TOPICS_PARTITIONS: 3
+      CONTROL_CENTER_INTERNAL_TOPICS_REPLICATION: 1
+      CONTROL_CENTER_MONITORING_INTER_BROKER_TOPIC_PARTITIONS: 1
+      CONTROL_CENTER_BOOTSTRAP_SERVERS: "kafka-broker-1:29092,kafka-broker-2:29092,kafka-broker-3:29092"
+      CONTROL_CENTER_KAFKA_SECURITY_PROTOCOL: PLAINTEXT
+      CONTROL_CENTER_KAFKA_SASL_MECHANISM: SCRAM-SHA-512
+      CONTROL_CENTER_KAFKA_SASL_JAAS_CONFIG: 'org.apache.kafka.common.security.scram.ScramLoginModule required username="kafkabroker" password="confluent";'
+      CONTROL_CENTER_KAFKA_SSL_TRUSTSTORE_LOCATION: /etc/kafka/certificates/client/kafka.client.truststore.jks
+      CONTROL_CENTER_KAFKA_SSL_TRUSTSTORE_PASSWORD: ${CLIENT_PASS}
+      CONTROL_CENTER_KAFKA_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM: ""
+      CONTROL_CENTER_PROMETHEUS_URL: http://prometheus:9090
+      CONTROL_CENTER_PROMETHEUS_RULES_FILE: /mnt/config/trigger_rules-generated.yml
+      CONTROL_CENTER_ALERTMANAGER_URL: http://alertmanager:9093
+      CONTROL_CENTER_ALERTMANAGER_CONFIG_FILE: /mnt/config/alertmanager-generated.yml
+      CONTROL_CENTER_SCHEMA_REGISTRY_URL: "http://schema-registry:8081"
+      CONFLUENT_TELEMETRY_ENABLED: "false"
+      CONFLUENT_CONTROL_CENTER_CMF_URL: ""
+      CONTROL_CENTER_KSQLDB_URL: ""
+      CONTROL_CENTER_REST_PROXY_URL: ""
+      KAFKA_METRIC_REPORTERS: ""
+
+      CONTROL_CENTER_CONNECT_CONNECT-DEFAULT_CLUSTER: "connect:8083"
+      CONTROL_CENTER_CONNECT_HEALTHCHECK_ENDPOINT: "/connectors"
+      CONTROL_CENTER_KSQL_KSQLDB1_URL: "http://ksqldb-server:8088"
+      CONTROL_CENTER_KSQL_KSQLDB1_ADVERTISED_URL: "http://localhost:8088"
+      CONTROL_CENTER_MONITORING_INTERCEPTOR_TOPIC_PARTITIONS: 1
+      CONFLUENT_METRICS_TOPIC_REPLICATION: 1
+      CONTROL_CENTER_PROMETHEUS_ENABLE: "true"
+      PORT: 9021
+
+      CONTROL_CENTER_HEAP_OPTS: "-Xmx512M -Xms256M"
+      CONTROL_CENTER_MONITORING_INTERCEPTORS_ENABLED: "false"
+      CONTROL_CENTER_MONITORING_INTERCEPTORS_TOPIC_PARTITIONS: 1
+
+    volumes:
+      - ${DIR_CERTIFICATES}:/etc/kafka/certificates
+      - ${DIR_CONFIG}:/mnt/config
+
+  ksqldb-server:
+    image: confluentinc/cp-ksqldb-server:8.0.0
+    profiles: ["core", "full"]
+    hostname: ksqldb-server
+    restart: on-failure
+    container_name: ksqldb-server
+    cpus: 0.5
+    mem_limit: 512m
+    networks:
+      - kafka-cluster-network
+    depends_on:
+      kafka-broker-1:
+        condition: service_healthy
+      kafka-broker-2:
+        condition: service_healthy
+      kafka-broker-3:
+        condition: service_healthy
+      connect:
+        condition: service_started
+    ports:
+      - "8088:8088"
+    environment:
+      KSQL_CONFIG_DIR: "/etc/ksql"
+      KSQL_BOOTSTRAP_SERVERS: "kafka-broker-1:29092,kafka-broker-2:29092,kafka-broker-3:29092"
+      KSQL_SECURITY_PROTOCOL: PLAINTEXT
+      KSQL_KAFKA_SASL_MECHANISM: SCRAM-SHA-512
+      KSQL_KAFKA_SASL_JAAS_CONFIG: 'org.apache.kafka.common.security.scram.ScramLoginModule required username="kafkabroker" password="confluent";'
+      KSQL_KAFKA_SSL_TRUSTSTORE_LOCATION: /etc/kafka/certificates/client/kafka.client.truststore.jks
+      KSQL_KAFKA_SSL_TRUSTSTORE_PASSWORD: ${CLIENT_PASS}
+      KSQL_KAFKA_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM: ""
+
+      KSQL_HOST_NAME: ksqldb-server
+      KSQL_LISTENERS: "http://0.0.0.0:8088"
+      KSQL_CACHE_MAX_BYTES_BUFFERING: 0
+      KSQL_KSQL_SCHEMA_REGISTRY_URL: "http://schema-registry:8081"
+      KSQL_PRODUCER_INTERCEPTOR_CLASSES: "io.confluent.monitoring.clients.interceptor.MonitoringProducerInterceptor"
+      KSQL_CONSUMER_INTERCEPTOR_CLASSES: "io.confluent.monitoring.clients.interceptor.MonitoringConsumerInterceptor"
+      KSQL_KSQL_CONNECT_URL: "http://connect:8083"
+      KSQL_KSQL_LOGGING_PROCESSING_TOPIC_REPLICATION_FACTOR: 1
+      KSQL_KSQL_LOGGING_PROCESSING_TOPIC_AUTO_CREATE: "true"
+      KSQL_KSQL_LOGGING_PROCESSING_STREAM_AUTO_CREATE: "true"
+
+      KSQL_HEAP_OPTS: "-Xmx256M -Xms128M"
+      KSQL_NUM_STREAM_THREADS: 1
+      KSQL_LOG_RETENTION_MS: 600000 # 10 min
+      KSQL_LOG_CLEANUP_POLICY: delete
+    volumes:
+      - ${DIR_CERTIFICATES}:/etc/kafka/certificates
+
+  ksqldb-cli:
+    image: confluentinc/cp-ksqldb-cli:8.0.0
+    container_name: ksqldb-cli
+    restart: on-failure
+    networks:
+      - kafka-cluster-network
+    depends_on:
+      kafka-broker-1:
+        condition: service_healthy
+      kafka-broker-2:
+        condition: service_healthy
+      kafka-broker-3:
+        condition: service_healthy
+      connect:
+        condition: service_started
+      ksqldb-server:
+        condition: service_started
+    entrypoint: /bin/sh
+    tty: true
+
+  ksql-datagen:
+    image: confluentinc/ksqldb-examples:8.0.0
+    hostname: ksql-datagen
+    container_name: ksql-datagen
+    cpus: 0.25
+    mem_limit: 128m
+    networks:
+      - kafka-cluster-network
+    depends_on:
+      kafka-broker-1:
+        condition: service_healthy
+      kafka-broker-2:
+        condition: service_healthy
+      kafka-broker-3:
+        condition: service_healthy
+      ksqldb-server:
+        condition: service_started
+      schema-registry-healthcheck:
+        condition: service_completed_successfully
+      connect:
+        condition: service_started
+    command: "bash -c 'echo Waiting for Kafka Broker 1 to be ready... && \
+      cub kafka-ready -b kafka-broker-1:29092 1 40 && \
+      echo Waiting for Kafka Broker 2 to be ready... && \
+      cub kafka-ready -b kafka-broker-2:29092 1 40 && \
+      echo Waiting for Kafka Broker 3 to be ready... && \
+      cub kafka-ready -b kafka-broker-3:29092 1 40 && \
+      echo Waiting for Confluent Schema Registry to be ready... && \
+      cub sr-ready schema-registry 8081 40 && \
+      echo Waiting a few seconds for topic creation to finish... && \
+      sleep 11 && \
+      tail -f /dev/null'"
+    environment:
+      KSQL_CONFIG_DIR: "/etc/ksql"
+      STREAMS_BOOTSTRAP_SERVERS: "kafka-broker-1:29092,kafka-broker-2:29092,kafka-broker-3:29092"
+      STREAMS_SECURITY_PROTOCOL: "PLAINTEXT"
+      STREAMS_KAFKA_SASL_MECHANISM: SCRAM-SHA-512
+      STREAMS_KAFKA_SASL_JAAS_CONFIG: 'org.apache.kafka.common.security.scram.ScramLoginModule required username="kafkabroker" password="confluent";'
+      STREAMS_KAFKA_SSL_TRUSTSTORE_LOCATION: /etc/kafka/certificates/client/kafka.client.truststore.jks
+      STREAMS_KAFKA_SSL_TRUSTSTORE_PASSWORD: ${CLIENT_PASS}
+      STREAMS_SCHEMA_REGISTRY_HOST: schema-registry
+      STREAMS_SCHEMA_REGISTRY_PORT: 8081
+
+      KSQL_DATAGEN_HEAP_OPTS: "-Xmx128M -Xms64M"
+    volumes:
+      - ${DIR_CERTIFICATES}:/etc/kafka/certificates
+
+  connect:
+    image: confluentinc/cp-kafka-connect:7.6.0
+    profiles: ["core", "full"]
+    hostname: connect
+    restart: on-failure
+    container_name: connect
+    cpus: 1
+    mem_limit: 2g
+    networks:
+      - kafka-cluster-network
+    depends_on:
+      kafka-broker-1:
+        condition: service_healthy
+      kafka-broker-2:
+        condition: service_healthy
+      kafka-broker-3:
+        condition: service_healthy
+      schema-registry-healthcheck:
+        condition: service_completed_successfully
+    ports:
+      - "8083:8083"
+    environment:
+      # CONNECT_BOOTSTRAP_SERVERS: "kafka-broker-1:9092,kafka-broker-2:9092,kafka-broker-3:9092"
+      CONNECT_BOOTSTRAP_SERVERS: "kafka-broker-1:29092,kafka-broker-2:29092,kafka-broker-3:29092"
+      # CONNECT_SECURITY_PROTOCOL: "SASL_SSL"
+      CONNECT_SECURITY_PROTOCOL: "PLAINTEXT"
+      CONNECT_KAFKA_SASL_MECHANISM: SCRAM-SHA-512
+      CONNECT_SASL_MECHANISM: SCRAM-SHA-512
+      CONNECT_SASL_JAAS_CONFIG: >
+        org.apache.kafka.common.security.scram.ScramLoginModule
+        required
+        username="kafkabroker"
+        password="confluent";
+      CONNECT_SSL_TRUSTSTORE_LOCATION: /etc/kafka/certificates/client/kafka.client.truststore.jks
+      CONNECT_SSL_TRUSTSTORE_PASSWORD: ${CLIENT_PASS}
+      CONNECT_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM: ""
+
+      CONNECT_REST_ADVERTISED_HOST_NAME: connect
+      CONNECT_GROUP_ID: compose-connect-group
+      CONNECT_CONFIG_STORAGE_TOPIC: docker-connect-configs
+      CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_OFFSET_FLUSH_INTERVAL_MS: 10000
+      CONNECT_OFFSET_STORAGE_TOPIC: docker-connect-offsets
+      CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_STATUS_STORAGE_TOPIC: docker-connect-status
+      CONNECT_STATUS_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_KEY_CONVERTER: org.apache.kafka.connect.storage.StringConverter
+      CONNECT_VALUE_CONVERTER: io.confluent.connect.avro.AvroConverter
+      CONNECT_INTERNAL_KEY_CONVERTER_SCHEMAS_ENABLE: "false"
+      CONNECT_INTERNAL_VALUE_CONVERTER_SCHEMAS_ENABLE: "false"
+      CONNECT_VALUE_CONVERTER_SCHEMA_REGISTRY_URL: http://schema-registry:8081
+
+      CONNECT_HEAP_OPTS: "-Xmx1G -Xms512M"
+      CONNECT_PRODUCER_MAX_REQUEST_SIZE: 1048576
+      CONNECT_CONSUMER_MAX_PARTITION_FETCH_BYTES: 1048576
+
+      # CLASSPATH: /usr/share/java/monitoring-interceptors/monitoring-interceptors-8.0.0.jar
+      # CONNECT_PRODUCER_INTERCEPTOR_CLASSES: "io.confluent.monitoring.clients.interceptor.MonitoringProducerInterceptor"
+      # CONNECT_CONSUMER_INTERCEPTOR_CLASSES: "io.confluent.monitoring.clients.interceptor.MonitoringConsumerInterceptor"
+      CONNECT_PLUGIN_PATH: "/usr/share/java,/usr/share/confluent-hub-components,/usr/share/external-plugins"
+    volumes:
+      - ${DIR_CERTIFICATES}:/etc/kafka/certificates
+      - ${DIR_PLUGINS}:/usr/share/external-plugins
+
+  # flink-sql-client:
+  #   image: flink:1.19.1-scala_2.12
+  #   container_name: flink-sql-client
+  #   hostname: flink-sql-client
+  #   stdin_open: true
+  #   tty: true
+  #   depends_on:
+  #     flink-jobmanager:
+  #       condition: service_started
+  #   # command: bin/sql-client.sh embedded -d /opt/flink/conf/sql-client-defaults.yaml
+  #   command: bin/sql-client.sh -d /opt/flink/conf/sql-client-defaults.yaml
+  #   networks:
+  #     - kafka-cluster-network
+  #   volumes:
+  #     - ${DIR_CERTIFICATES}:/etc/kafka/certificates
+  #     - ${DIR_CONFIG}/sql-client-defaults.yaml:/opt/flink/conf/sql-client-defaults.yaml
+  #     - ${DIR_PLUGINS}/flink-sql-connector-kafka-3.2.0-1.19.jar:/opt/flink/lib/flink-sql-connector-kafka-3.2.0-1.19.jar
+
+  # flink-jobmanager:
+  #   image: flink:1.19.1-scala_2.12
+  #   hostname: flink-jobmanager
+  #   container_name: flink-jobmanager
+  #   ports:
+  #     - 9081:9081
+  #   depends_on:
+  #     connect:
+  #       condition: service_started
+  #   command: jobmanager
+  #   networks:
+  #     - kafka-cluster-network
+  #   environment:
+  #     - |
+  #       FLINK_PROPERTIES=
+  #       jobmanager.rpc.address: flink-jobmanager
+  #       rest.bind-port: 9081
+  #       rest.bind-address: 0.0.0.0
+  #     - DISABLE_JEMALLOC=true
+  #   volumes:
+  #     - ${DIR_CONFIG}:/opt/flink/conf
+
+  # flink-taskmanager:
+  #   image: flink:1.19.1-scala_2.12
+  #   hostname: flink-taskmanager
+  #   container_name: flink-taskmanager
+  #   depends_on:
+  #     flink-jobmanager:
+  #       condition: service_started
+  #   command: taskmanager
+  #   networks:
+  #     - kafka-cluster-network
+  #   scale: 1
+  #   environment:
+  #     - |
+  #       FLINK_PROPERTIES=
+  #       jobmanager.rpc.address: flink-jobmanager
+  #       taskmanager.numberOfTaskSlots: 10
+  #     - DISABLE_JEMALLOC=true

@@ -1,0 +1,45 @@
+version: "3.9"
+networks:
+  kafka-cluster-network:
+    external: true
+services:
+  flink-jobmanager:
+    image: flink:1.19.1-scala_2.12
+    hostname: flink-jobmanager
+    container_name: flink-jobmanager
+    ports:
+      - 9081:9081
+    command: jobmanager
+    networks:
+      - kafka-cluster-network
+    environment:
+      - |
+        FLINK_PROPERTIES=
+        jobmanager.rpc.address: flink-jobmanager
+        jobmanager.rpc.port: 6123
+        rest.port: 9081
+        rest.bind-address: 0.0.0.0
+      - DISABLE_JEMALLOC=true
+    volumes:
+      - ${DIR_CONFIG}/flink-conf.yaml:/opt/flink/conf/flink-conf.yaml
+      - ${DIR_PLUGINS}/flink-sql-connector-kafka-3.2.0-1.19.jar:/opt/flink/lib/flink-sql-connector-kafka-3.2.0-1.19.jar
+  flink-taskmanager:
+    image: flink:1.19.1-scala_2.12
+    hostname: flink-taskmanager
+    depends_on:
+      flink-jobmanager:
+        condition: service_started
+    command: taskmanager
+    networks:
+      - kafka-cluster-network
+    scale: 2 # Increase to 2 TaskManagers
+    environment:
+      - |
+        FLINK_PROPERTIES=
+        jobmanager.rpc.address: flink-jobmanager
+        jobmanager.rpc.port: 6123
+        taskmanager.numberOfTaskSlots: 10
+      - DISABLE_JEMALLOC=true
+    volumes:
+      - ${DIR_CONFIG}/flink-conf.yaml:/opt/flink/conf/flink-conf.yaml
+      - ${DIR_PLUGINS}/flink-sql-connector-kafka-3.2.0-1.19.jar:/opt/flink/lib/flink-sql-connector-kafka-3.2.0-1.19.jar
