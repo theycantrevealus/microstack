@@ -58,6 +58,7 @@ query.server.port: 6125
 execution.restart-strategy: fixed-delay
 execution.restart-strategy.fixed-delay.attempts: 3
 execution.restart-strategy.fixed-delay.delay: 10s
+rest.flamegraph.enabled: true
 ```
 
 ```yaml
@@ -160,8 +161,33 @@ curl -X POST -H "Content-Type: application/json" \
       "output.format.key": "json",
       "key.converter": "org.apache.kafka.connect.json.JsonConverter",
       "value.converter": "org.apache.kafka.connect.json.JsonConverter",
+      "key.converter.schemas.enable": "true",
+      "value.converter.schemas.enable": "true",
+      "value.converter.string.encoding": "UTF-8"
+    }
+  }' http://localhost:8083/connectors
+```
+
+```bash
+curl -X POST -H "Content-Type: application/json" \
+  --data '{
+    "name": "mongo.connector",
+    "config": {
+      "connector.class": "com.mongodb.kafka.connect.MongoSourceConnector",
+      "tasks.max": "1",
+      "connection.uri": "mongodb://host.docker.internal:27117,host.docker.internal:27118",
+      "database": "SLRevamp2",
+      "collection": "keywords",
+      "topic.prefix": "mongo",
+      "output.format.key": "json",
+      "output.format.value": "json",
+
+      "key.converter": "org.apache.kafka.connect.storage.StringConverter",
+      "value.converter": "org.apache.kafka.connect.storage.StringConverter",
       "key.converter.schemas.enable": "false",
-      "value.converter.schemas.enable": "false"
+      "value.converter.schemas.enable": "false",
+
+      "value.converter.string.encoding": "UTF-8"
     }
   }' http://localhost:8083/connectors
 ```
@@ -206,7 +232,9 @@ docker run -it --rm \
 
 ```sql
 SET execution.parallelism = 10;
+
 SET execution.checkpointing.interval = '10s';
+
 CREATE TABLE TERE_keywords (
   _id STRING,
   keyword STRING,
@@ -225,7 +253,33 @@ CREATE TABLE TERE_keywords (
   'json.ignore-parse-errors' = 'true',
   'scan.startup.mode' = 'earliest-offset'
 );
+
+CREATE TABLE TERE_keywords (
+  operationType STRING,
+  clusterTime BIGINT,
+  wallTime BIGINT,
+  fullDocument___id STRING,
+  fullDocument_keyword STRING,
+  fullDocument_points INT
+) WITH (
+  'connector' = 'kafka',
+  'topic' = 'mongo.SLRevamp2.keywords',
+  'properties.bootstrap.servers' = 'kafka-broker-1:29092',
+  'properties.security.protocol' = 'PLAINTEXT',
+  'properties.sasl.mechanism' = 'SCRAM-SHA-512',
+  'properties.sasl.jaas.config' = 'org.apache.kafka.common.security.scram.ScramLoginModule required username="kafkabroker" password="confluent";',
+  'properties.ssl.truststore.location' = '/etc/kafka/certificates/client/kafka.client.truststore.jks',
+  'properties.ssl.truststore.password' = 'clientpass',
+  'properties.ssl.endpoint.identification.algorithm' = '',
+  'format' = 'json',
+  'json.ignore-parse-errors' = 'false',
+  'json.map-null-key.mode' = 'DROP',
+  'properties.group.id' = 'flink-keyword',
+  'scan.startup.mode' = 'earliest-offset'
+);
+
 SELECT * FROM TERE_keywords;
+
 CREATE TABLE sink_table (
   _id STRING,
   keyword STRING,
@@ -253,4 +307,10 @@ SSL_DIR=${DIR_CERTIFICATES}
 CA_DIR=${SSL_DIR}/ca
 CLIENT_DIR=${SSL_DIR}/client
 docker compose -p "flink" -f flink.yml up -d
+```
+
+### Test Insert Data
+
+```bash
+mongosh mongodb://127.0.0.1:27117,127.0.0.1:27118/SLRevamp2 --quiet --eval 'db.keywords.insertOne({"keyword": "ABC", "points": 100})'
 ```

@@ -642,7 +642,7 @@ clean_ports
 generate_jaas kafkabroker confluent
 prepare_kafka_properties
 prepare_client_properties
-prepare_flink_properties
+# prepare_flink_properties
 format_kafka
 create_scram_users
 start_docker
