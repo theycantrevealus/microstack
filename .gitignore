@@ -11,6 +11,7 @@
 *.properties
 config/*.conf
 kafka/config/*.yaml
+kafka/documentation/*
 
 # JAR
 *.jar
