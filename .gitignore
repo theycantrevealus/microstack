@@ -7,9 +7,11 @@
 *.key
 *.p12
 *.srl
-
+*.sql
 *.properties
 config/*.conf
+kafka/config/*.yaml
+kafka/documentation/*
 
 # JAR
 *.jar
@@ -20,3 +22,5 @@ backup_*.yml
 
 # FOR KAFKA
 kafka/shell/*
+
+**/*/java/*
