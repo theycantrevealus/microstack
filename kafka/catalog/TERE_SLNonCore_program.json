@@ -1,0 +1,38 @@
+{
+  "table": {
+    "identifier": {
+      "catalog": "TERE_Catalog_NonCore",
+      "database": "default",
+      "table": "TERE_SLNonCore_program"
+    },
+    "schema": {
+      "columns": [
+        { "name": "operationType", "type": "STRING" },
+        { "name": "clusterTime", "type": "ROW<`t` BIGINT, `i` BIGINT>" },
+        { "name": "wallTime", "type": "ROW<`$date` BIGINT>" },
+        {
+          "name": "fullDocument",
+          "type": "ROW<`_id` ROW<`$oid` STRING>, `name` STRING, `desc` STRING>"
+        },
+        { "name": "ns", "type": "ROW<`db` STRING, `coll` STRING>" },
+        { "name": "documentKey", "type": "ROW<`_id` ROW<`$oid` STRING>>" }
+      ]
+    },
+    "options": {
+      "connector": "kafka",
+      "topic": "mongo.SLNonCore.program",
+      "properties.bootstrap.servers": "kafka-broker-1:29092",
+      "properties.group.id": "flink-consumer-program",
+      "properties.security.protocol": "PLAINTEXT",
+      "properties.sasl.mechanism": "SCRAM-SHA-512",
+      "properties.sasl.jaas.config": "org.apache.kafka.common.security.scram.ScramLoginModule required username=\"kafkabroker\" password=\"confluent\";",
+      "properties.ssl.truststore.location": "/etc/kafka/certificates/client/kafka.client.truststore.jks",
+      "properties.ssl.truststore.password": "clientpass",
+      "properties.ssl.endpoint.identification.algorithm": "",
+      "format": "json",
+      "json.ignore-parse-errors": "true",
+      "scan.startup.mode": "earliest-offset"
+    },
+    "comment": "Program table from MongoDB Kafka topic"
+  }
+}

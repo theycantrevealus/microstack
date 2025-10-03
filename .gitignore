@@ -7,7 +7,6 @@
 *.key
 *.p12
 *.srl
-*.sql
 *.properties
 config/*.conf
 kafka/config/*.yaml
