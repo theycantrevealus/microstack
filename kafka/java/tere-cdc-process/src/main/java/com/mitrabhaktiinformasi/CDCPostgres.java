@@ -57,7 +57,6 @@ public class CDCPostgres {
                 properties
         );
         kafkaConsumer.setStartFromEarliest();
-        // kafkaConsumer.setCommitOffsetsOnCheckpoints(true);
 
         DataStream<KeywordEvent> events = env.addSource(kafkaConsumer).map(new ParseJsonMap());
 
@@ -68,26 +67,91 @@ public class CDCPostgres {
                 .withPassword("mypassword")
                 .build();
 
-        events.addSink(JdbcSink.sink(
-                "INSERT INTO keyword (_id, document) VALUES (?, ?) " +
-                        "ON CONFLICT (_id) DO UPDATE SET document = EXCLUDED.document",
-                (PreparedStatement ps, KeywordEvent event) -> {
-                    if ("delete".equals(event.operationType)) {
-                        ps.clearParameters();
-                        ps.setString(1, event.id);
-                        ps.executeUpdate(); // Execute DELETE separately
-                    } else {
-                        ps.setString(1, event.id);
-                        ps.setString(2, event.document);
-                        ps.executeUpdate();
-                    }
-                },
-                new JdbcExecutionOptions.Builder()
-                        .withBatchSize(500)
-                        .withBatchIntervalMs(200)
-                        .build(),
-                jdbcOptions
+        // events.addSink(JdbcSink.sink(
+        //         "INSERT INTO keyword (_id, document) VALUES (?, ?) ON CONFLICT (_id) DO UPDATE SET document = EXCLUDED.document",
+        //         (PreparedStatement ps, KeywordEvent event) -> {
+        //             System.out.println("DataSet=" + event);
+
+        //             if ("delete".equals(event.operationType)) {
+        //                 ps.clearParameters();
+        //                 ps.setString(1, event.id);
+        //                 ps.executeUpdate();
+        //             } else {
+        //                 ps.setString(1, event.id);
+        //                 ps.setString(2, event.document);
+        //                 ps.executeUpdate();
+        //             }
+        //         },
+        //         new JdbcExecutionOptions.Builder()
+        //                 .withBatchSize(500)
+        //                 .withBatchIntervalMs(200)
+        //                 .build(),
+        //         jdbcOptions
+        // ));
+
+        // Delete sink
+        events
+        .filter(e -> "delete".equals(e.operationType))
+        .addSink(JdbcSink.sink(
+            "DELETE FROM keyword WHERE _id = ?",
+            (ps, e) -> ps.setString(1, e.id),
+            new JdbcExecutionOptions.Builder()
+                .withBatchSize(500)
+                .withBatchIntervalMs(200)
+                .build(),
+            jdbcOptions
         ));
+
+        // Insert sink
+        events
+        .filter(e -> "insert".equals(e.operationType))
+        .addSink(JdbcSink.sink(
+            "INSERT INTO keyword (_id, document) VALUES (?, ?) ON CONFLICT (_id) DO UPDATE SET document = EXCLUDED.document",
+            (ps, e) -> {
+                ps.setString(1, e.id);
+                ps.setString(2, e.document);
+            },
+            new JdbcExecutionOptions.Builder()
+                .withBatchSize(500)
+                .withBatchIntervalMs(200)
+                .build(),
+            jdbcOptions
+        ));
+
+        // Update sink
+        events
+        .filter(e -> "update".equals(e.operationType))
+        .addSink(JdbcSink.sink(
+            "UPDATE keyword SET document = ? WHERE _id = ?",
+            (ps, e) -> {
+                ps.setString(1, e.document);
+                ps.setString(2, e.id);
+            },
+            new JdbcExecutionOptions.Builder()
+                .withBatchSize(500)
+                .withBatchIntervalMs(200)
+                .build(),
+            jdbcOptions
+        ));
+
+        // Replace sink
+        events
+        .filter(e -> "replace".equals(e.operationType))
+        .addSink(JdbcSink.sink(
+            "UPDATE keyword SET document = ? WHERE _id = ?",
+            (ps, e) -> {
+                ps.setString(1, e.document);
+                ps.setString(2, e.id);
+            },
+            new JdbcExecutionOptions.Builder()
+                .withBatchSize(500)
+                .withBatchIntervalMs(200)
+                .build(),
+            jdbcOptions
+        ));
+
+
+
 
         env.execute("Flink Unified CDC to Postgres");
     }

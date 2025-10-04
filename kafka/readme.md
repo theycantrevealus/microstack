@@ -373,6 +373,14 @@ Compact topic need to create first so Apache-Flink can re-consume the topic to r
 docker exec -e KAFKA_OPTS="" -it kafka-broker-1  kafka-topics \
   --create \
   --bootstrap-server localhost:29092 \
+  --topic mongo.SLNonCore.keyword \
+  --partitions 1 \
+  --replication-factor 1 \
+  --config cleanup.policy=compact
+
+docker exec -e KAFKA_OPTS="" -it kafka-broker-1  kafka-topics \
+  --create \
+  --bootstrap-server localhost:29092 \
   --topic <TOPIC> \
   --partitions 1 \
   --replication-factor 1 \

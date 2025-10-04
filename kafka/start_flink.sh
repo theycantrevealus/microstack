@@ -14,6 +14,8 @@ SSL_DIR=${DIR_CERTIFICATES}
 CA_DIR=${SSL_DIR}/ca
 CLIENT_DIR=${SSL_DIR}/client
 
-cp java/tere-cdc-process/target/tere-cdc-process-1.0-SNAPSHOT.jar jar
+# cd java/tere-cdc-process
+# mvn clean package -U && cp "$WORKDIR/java/tere-cdc-process/target/tere-cdc-process-1.0-SNAPSHOT.jar" "$WORKDIR/jar" && cd "$WORKDIR"
+
 
 docker compose -p "flink" -f flink.yml up -d
