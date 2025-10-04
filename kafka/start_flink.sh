@@ -1,9 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 WORKDIR=${PWD}
-export KAFKA_BOOTSTRAP_SERVERS=kafka-broker-1:29092
-
-
 export BROKER_PASS=brokerpass
 export CLIENT_PASS=clientpass
 export CLUSTER_ID=$(docker run --rm confluentinc/cp-kafka:latest kafka-storage random-uuid)
@@ -16,4 +13,7 @@ export DIR_PLUGINS=$WORKDIR/plugins
 SSL_DIR=${DIR_CERTIFICATES}
 CA_DIR=${SSL_DIR}/ca
 CLIENT_DIR=${SSL_DIR}/client
+
+cp java/tere-cdc-process/target/tere-cdc-process-1.0-SNAPSHOT.jar jar
+
 docker compose -p "flink" -f flink.yml up -d
