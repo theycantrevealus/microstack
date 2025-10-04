@@ -23,6 +23,8 @@ services:
     volumes:
       - ${DIR_CONFIG}/flink-conf.yaml:/opt/flink/conf/flink-conf.yaml
       - ${DIR_PLUGINS}/flink-sql-connector-kafka-3.2.0-1.19.jar:/opt/flink/lib/flink-sql-connector-kafka-3.2.0-1.19.jar
+      - ${DIR_PLUGINS}/flink-connector-jdbc-3.1.2-1.18.jar:/opt/flink/lib/flink-connector-jdbc-3.1.2-1.18.jar
+      - ${DIR_PLUGINS}/postgresql-42.7.3.jar:/opt/flink/lib/postgresql-42.7.3.jar
   flink-taskmanager:
     image: flink:1.19.1-scala_2.12
     hostname: flink-taskmanager
@@ -43,3 +45,5 @@ services:
     volumes:
       - ${DIR_CONFIG}/flink-conf.yaml:/opt/flink/conf/flink-conf.yaml
       - ${DIR_PLUGINS}/flink-sql-connector-kafka-3.2.0-1.19.jar:/opt/flink/lib/flink-sql-connector-kafka-3.2.0-1.19.jar
+      - ${DIR_PLUGINS}/flink-connector-jdbc-3.1.2-1.18.jar:/opt/flink/lib/flink-connector-jdbc-3.1.2-1.18.jar
+      - ${DIR_PLUGINS}/postgresql-42.7.3.jar:/opt/flink/lib/postgresql-42.7.3.jar

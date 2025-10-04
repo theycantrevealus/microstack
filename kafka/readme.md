@@ -8,6 +8,15 @@ wget https://github.com/prometheus/jmx_exporter/releases/download/v1.4.0/jmx_pro
 
 and put it into **jar** folder
 
+```bash
+wget https://repo.maven.apache.org/maven2/org/apache/flink/flink-sql-connector-kafka/3.1.0-1.18/flink-sql-connector-kafka-3.1.0-1.18.jar
+wget https://repo1.maven.org/maven2/org/apache/flink/flink-connector-jdbc-postgres/4.0.0-2.0/flink-connector-jdbc-postgres-4.0.0-2.0.jar
+wget https://repo1.maven.org/maven2/org/apache/flink/flink-connector-jdbc/3.1.2-1.18/flink-connector-jdbc-3.1.2-1.18.jar
+wget https://jdbc.postgresql.org/download/postgresql-42.7.3.jar
+```
+
+and put it into **plugins** folder
+
 ## Start the base
 
 ```bash
@@ -67,6 +76,8 @@ execution.restart-strategy: fixed-delay
 execution.restart-strategy.fixed-delay.attempts: 3
 execution.restart-strategy.fixed-delay.delay: 10s
 rest.flamegraph.enabled: true
+jobmanager.memory.heap.size: 1024m
+jobmanager.memory.flink.size: 1024m
 ```
 
 ```yaml

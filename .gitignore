@@ -21,4 +21,4 @@ backup_*.yml
 # FOR KAFKA
 kafka/shell/*
 
-**/*/java/*
+**/*/target/*

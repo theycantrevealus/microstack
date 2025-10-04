@@ -19,34 +19,7 @@ CLIENT_DIR=${SSL_DIR}/client
 docker exec flink-jobmanager \
   bash -c 'for jid in $(/opt/flink/bin/flink list | awk "{print \$4}"); do /opt/flink/bin/flink cancel $jid; done'
 
-docker exec -e KAFKA_OPTS="" kafka-broker-1 kafka-topics \
-  --bootstrap-server localhost:9092 \
-  --command-config /etc/kafka/properties/client.properties \
-  --delete \
-  --topic TERE_redeem
-
-docker exec -e KAFKA_OPTS="" kafka-broker-1 kafka-topics \
-  --bootstrap-server localhost:9092 \
-  --command-config /etc/kafka/properties/client.properties \
-  --delete \
-  --topic TERE_eligibility
-
-docker exec -e KAFKA_OPTS="" kafka-broker-1 kafka-topics \
-  --bootstrap-server kafka-broker-1:9092 \
-  --command-config /etc/kafka/properties/client.properties \
-  --create \
-  --topic TERE_redeem \
-  --partitions 1 \
-  --replication-factor 1
-
-  docker exec -e KAFKA_OPTS="" kafka-broker-1 kafka-topics \
-  --bootstrap-server kafka-broker-1:9092 \
-  --command-config /etc/kafka/properties/client.properties \
-  --create \
-  --topic TERE_eligibility \
-  --partitions 1 \
-  --replication-factor 1
-
+# RUN IN CLIENT MODE
 docker run -it --rm \
     --network kafka-cluster-network \
     -v ${DIR_CERTIFICATES}:/etc/kafka/certificates \
@@ -56,8 +29,9 @@ docker run -it --rm \
     -v ${DIR_CONFIG}/job.sql:/opt/flink/conf/job.sql \
     -v ${DIR_PLUGINS}/flink-sql-connector-kafka-3.2.0-1.19.jar:/opt/flink/lib/flink-sql-connector-kafka-3.2.0-1.19.jar \
     -v ${DIR_PLUGINS}/flink-connector-filesystem-0.10.2.jar:/opt/flink/lib/flink-connector-filesystem-0.10.2.jar \
+    -v ${DIR_PLUGINS}/flink-connector-jdbc-3.1.2-1.18.jar:/opt/flink/lib/flink-connector-jdbc-3.1.2-1.18.jar \
     -v ${DIR_PLUGINS}/postgresql-42.7.3.jar:/opt/flink/lib/postgresql-42.7.3.jar \
     -v ${DIR_CATALOG}:/opt/flink/catalog \
     flink:1.19.1-scala_2.12 \
-    bin/sql-client.sh -i /opt/flink/conf/initiate.sql -f /opt/flink/conf/job.sql
-    # -d /opt/flink/conf/sql-client-defaults.yaml 
+    bin/sql-client.sh -d /opt/flink/conf/sql-client-defaults.yaml 
+    

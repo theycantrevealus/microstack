@@ -24,7 +24,12 @@ case "$MODE" in
     ;;
   flink-cli)
     echo "Starting Flink CLI"
-    ./start_flink_cli.sh
+    ./start_postgres.sh && ./start_flink_cli.sh
+    ;;
+  flink-cli-client)
+    echo "Starting Flink CLI CLIENT MODE"
+    ./start_postgres.sh
+    ./start_flink_cli_client.sh
     ;;
   *)
     echo "❌ Error: Unknown mode '$MODE'. Allowed values: dev | prod"
