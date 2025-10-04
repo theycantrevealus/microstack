@@ -1,0 +1,17 @@
+execution:
+  planner: blink
+  type: streaming
+  result-mode: changelog
+  parallelism: 10
+configuration:
+  execution.checkpointing.interval: 10s
+catalogs:
+  - name: TERE_Catalog_NonCore
+    type: filesystem
+    default-database: SLNonCore
+    path: file:///opt/flink/catalog
+deployment:
+  gateway:
+    type: standalone
+    cluster-host: flink-jobmanager
+    cluster-port: 9081

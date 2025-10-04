@@ -21,6 +21,35 @@ CLIENT_DIR=${SSL_DIR}/client
 docker exec flink-jobmanager \
   bash -c 'for jid in $(/opt/flink/bin/flink list | awk "{print \$4}"); do /opt/flink/bin/flink cancel $jid; done'
 
+docker exec -e KAFKA_OPTS="" kafka-broker-1 kafka-topics \
+  --bootstrap-server localhost:9092 \
+  --command-config /etc/kafka/properties/client.properties \
+  --delete \
+  --topic TERE_redeem
+
+docker exec -e KAFKA_OPTS="" kafka-broker-1 kafka-topics \
+  --bootstrap-server localhost:9092 \
+  --command-config /etc/kafka/properties/client.properties \
+  --delete \
+  --topic TERE_eligibility
+
+docker exec -e KAFKA_OPTS="" kafka-broker-1 kafka-topics \
+  --bootstrap-server kafka-broker-1:9092 \
+  --command-config /etc/kafka/properties/client.properties \
+  --create \
+  --topic TERE_redeem \
+  --partitions 1 \
+  --replication-factor 1
+
+  docker exec -e KAFKA_OPTS="" kafka-broker-1 kafka-topics \
+  --bootstrap-server kafka-broker-1:9092 \
+  --command-config /etc/kafka/properties/client.properties \
+  --create \
+  --topic TERE_eligibility \
+  --partitions 1 \
+  --replication-factor 1
+
+
 docker run -it --rm \
     --network kafka-cluster-network \
     -v ${DIR_CERTIFICATES}:/etc/kafka/certificates \

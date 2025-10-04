@@ -592,8 +592,6 @@ SELECT
   start_period,
   end_period,
   kafka_timestamp,
-  CURRENT_TIMESTAMP AS processed_time,
-  UNIX_MILLIS(CURRENT_TIMESTAMP) -  COALESCE(UNIX_MILLIS(kafka_timestamp), UNIX_MILLIS(CURRENT_TIMESTAMP)) AS latency_ms,
   CASE
     WHEN start_period IS NULL OR end_period IS NULL THEN 'Missing keyword period'
     WHEN CURRENT_TIMESTAMP < TO_TIMESTAMP_LTZ(start_period, 3) THEN 'Keyword period not yet started'
@@ -610,9 +608,8 @@ CREATE TABLE Kafka_eligibility_sink (
     start_period BIGINT,
     end_period BIGINT,
     kafka_timestamp TIMESTAMP_LTZ(3),
-    processed_time TIMESTAMP_LTZ(3),
-    latency_ms BIGINT,
     reason STRING,
+    latency_ms BIGINT,
     PRIMARY KEY (transaction_id) NOT ENFORCED
 ) WITH (
   'connector' = 'upsert-kafka',
