@@ -20,6 +20,13 @@ services:
         rest.port: 9081
         rest.bind-address: 0.0.0.0
       - DISABLE_JEMALLOC=true
+      - KAFKA_BOOTSTRAP_SERVERS=kafka-broker-1:29092
+      - KAFKA_GROUP_ID=flink-consumer-keyword
+      - KAFKA_SECURITY_PROTOCOL=PLAINTEXT
+      - KAFKA_SASL_MECHANISM=SCRAM-SHA-512
+      - KAFKA_SASL_JAAS_CONFIG=org.apache.kafka.common.security.scram.ScramLoginModule required username="kafkabroker" password="confluent";
+      - KAFKA_SSL_TRUSTSTORE_LOCATION=/etc/kafka/certificates/client/kafka.client.truststore.jks
+      - KAFKA_SSL_TRUSTSTORE_PASSWORD=clientpass
     volumes:
       - ${DIR_CONFIG}/flink-conf.yaml:/opt/flink/conf/flink-conf.yaml
       - ${DIR_PLUGINS}/flink-sql-connector-kafka-3.2.0-1.19.jar:/opt/flink/lib/flink-sql-connector-kafka-3.2.0-1.19.jar

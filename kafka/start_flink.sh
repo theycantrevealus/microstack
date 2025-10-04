@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 WORKDIR=${PWD}
+export KAFKA_BOOTSTRAP_SERVERS=kafka-broker-1:29092
+
+
 export BROKER_PASS=brokerpass
 export CLIENT_PASS=clientpass
 export CLUSTER_ID=$(docker run --rm confluentinc/cp-kafka:latest kafka-storage random-uuid)

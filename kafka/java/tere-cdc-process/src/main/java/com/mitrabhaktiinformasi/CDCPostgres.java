@@ -1,5 +1,5 @@
 package com.mitrabhaktiinformasi.flinkcdc;
-
+import java.lang.System;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.flink.api.common.functions.MapFunction;
@@ -42,14 +42,13 @@ public class CDCPostgres {
         env.setParallelism(1);
 
         Properties properties = new Properties();
-        properties.setProperty("bootstrap.servers", "kafka-broker-1:29092");
-        properties.setProperty("group.id", "flink-consumer-keyword");
-        properties.setProperty("security.protocol", "PLAINTEXT");
-        properties.setProperty("sasl.mechanism", "SCRAM-SHA-512");
-        properties.setProperty("sasl.jaas.config",
-                "org.apache.kafka.common.security.scram.ScramLoginModule required username=\"kafkabroker\" password=\"confluent\";");
-        properties.setProperty("ssl.truststore.location", "/etc/kafka/certificates/client/kafka.client.truststore.jks");
-        properties.setProperty("ssl.truststore.password", "clientpass");
+        properties.setProperty("bootstrap.servers", System.getenv("KAFKA_BOOTSTRAP_SERVERS"));
+        properties.setProperty("group.id", System.getenv("KAFKA_GROUP_ID"));
+        properties.setProperty("security.protocol", System.getenv("KAFKA_SECURITY_PROTOCOL"));
+        properties.setProperty("sasl.mechanism", System.getenv("KAFKA_SASL_MECHANISM"));
+        properties.setProperty("sasl.jaas.config", System.getenv("KAFKA_SASL_JAAS_CONFIG"));
+        properties.setProperty("ssl.truststore.location", System.getenv("KAFKA_SSL_TRUSTSTORE_LOCATION"));
+        properties.setProperty("ssl.truststore.password", System.getenv("KAFKA_SSL_TRUSTSTORE_PASSWORD"));
         properties.setProperty("ssl.endpoint.identification.algorithm", "");
 
         FlinkKafkaConsumer<String> kafkaConsumer = new FlinkKafkaConsumer<>(
