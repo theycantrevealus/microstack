@@ -42,8 +42,43 @@ public class CDCPostgres {
                 properties.setProperty("ssl.truststore.location", System.getenv("KAFKA_SSL_TRUSTSTORE_LOCATION"));
                 properties.setProperty("ssl.truststore.password", System.getenv("KAFKA_SSL_TRUSTSTORE_PASSWORD"));
                 properties.setProperty("ssl.endpoint.identification.algorithm", "");
+                /*
+                 * ======================================================================
+                 * Sink Program
+                 * ======================================================================
+                 */
+                KafkaSource<String> sourceProgram = KafkaSource.<String>builder()
+                                .setBootstrapServers(System.getenv("KAFKA_BOOTSTRAP_SERVERS"))
+                                .setTopics("mongo.SLNonCore.program")
+                                .setGroupId(System.getenv("KAFKA_GROUP_ID"))
+                                .setProperties(properties)
+                                .setStartingOffsets(OffsetsInitializer.earliest())
+                                .setValueOnlyDeserializer(
+                                                new SimpleStringSchema())
+                                .build();
 
-                KafkaSource<String> source = KafkaSource.<String>builder()
+                DataStream<String> rawEventsProgram = env.fromSource(
+                                sourceProgram,
+                                WatermarkStrategy.noWatermarks(),
+                                "Kafka Source");
+
+                DataStream<CDCData> eventsProgram = rawEventsProgram.map(new ParseJsonMap())
+                                .assignTimestampsAndWatermarks(WatermarkStrategy
+                                                .<CDCData>forBoundedOutOfOrderness(Duration.ofSeconds(5))
+                                                .withTimestampAssigner((event, ts) -> event.eventTime));
+
+                eventsProgram.addSink(new PostgresCDCSink(
+                                "program",
+                                System.getenv("JDBC_URL"),
+                                System.getenv("JDBC_USER"),
+                                System.getenv("JDBC_PASSWORD")));
+
+                /*
+                 * ======================================================================
+                 * Sink Keyword
+                 * ======================================================================
+                 */
+                KafkaSource<String> sourceKeyword = KafkaSource.<String>builder()
                                 .setBootstrapServers(System.getenv("KAFKA_BOOTSTRAP_SERVERS"))
                                 .setTopics("mongo.SLNonCore.keyword")
                                 .setGroupId(System.getenv("KAFKA_GROUP_ID"))
@@ -52,17 +87,19 @@ public class CDCPostgres {
                                 .setValueOnlyDeserializer(
                                                 new SimpleStringSchema())
                                 .build();
-                DataStream<String> rawEvents = env.fromSource(
-                                source,
+
+                DataStream<String> rawEventsKeyword = env.fromSource(
+                                sourceKeyword,
                                 WatermarkStrategy.noWatermarks(),
                                 "Kafka Source");
 
-                DataStream<CDCData> events = rawEvents.map(new ParseJsonMap())
+                DataStream<CDCData> eventsKeyword = rawEventsKeyword.map(new ParseJsonMap())
                                 .assignTimestampsAndWatermarks(WatermarkStrategy
                                                 .<CDCData>forBoundedOutOfOrderness(Duration.ofSeconds(5))
                                                 .withTimestampAssigner((event, ts) -> event.eventTime));
 
-                events.addSink(new PostgresCDCSink(
+                eventsKeyword.addSink(new PostgresCDCSink(
+                                "keyword",
                                 System.getenv("JDBC_URL"),
                                 System.getenv("JDBC_USER"),
                                 System.getenv("JDBC_PASSWORD")));

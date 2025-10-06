@@ -21,13 +21,15 @@ public class PostgresCDCSink extends RichSinkFunction<CDCData> {
     private final String jdbcUrl;
     private final String jdbcUser;
     private final String jdbcPassword;
+    private final String tableName;
 
     private final ObjectMapper mapper = new ObjectMapper();
 
-    public PostgresCDCSink(String jdbcUrl, String jdbcUser, String jdbcPassword) {
+    public PostgresCDCSink(String tableName, String jdbcUrl, String jdbcUser, String jdbcPassword) {
         this.jdbcUrl = jdbcUrl;
         this.jdbcUser = jdbcUser;
         this.jdbcPassword = jdbcPassword;
+        this.tableName = tableName;
     }
 
     @Override
@@ -73,7 +75,7 @@ public class PostgresCDCSink extends RichSinkFunction<CDCData> {
             switch (e.operationType) {
                 case "delete":
                     try (PreparedStatement ps = connection.prepareStatement(
-                            "DELETE FROM keyword WHERE _id = ?")) {
+                            "DELETE FROM " + tableName + " WHERE _id = ?")) {
                         ps.setString(1, e.documentKey.id.toString());
                         int rows = ps.executeUpdate();
                         LOG.info("DELETE executed, rows affected={}", rows);
@@ -89,7 +91,8 @@ public class PostgresCDCSink extends RichSinkFunction<CDCData> {
 
                 case "insert":
                     try (PreparedStatement ps = connection.prepareStatement(
-                            "INSERT INTO keyword (_id, document) VALUES (?, ?::jsonb) ON CONFLICT (_id) DO UPDATE SET document = EXCLUDED.document")) {
+                            "INSERT INTO " + tableName
+                                    + " (_id, document) VALUES (?, ?::jsonb) ON CONFLICT (_id) DO UPDATE SET document = EXCLUDED.document")) {
 
                         String docAsString = e.fullDocument != null
                                 ? (e.fullDocument instanceof JsonNode
@@ -106,7 +109,7 @@ public class PostgresCDCSink extends RichSinkFunction<CDCData> {
                         LOG.info("INSERT executed, rows affected={}", rows);
 
                         try (PreparedStatement selectPs = connection.prepareStatement(
-                                "SELECT _id, document FROM keyword WHERE _id = ?")) {
+                                "SELECT _id, document FROM " + tableName + " WHERE _id = ?")) {
                             selectPs.setString(1, e.documentKey.id.toString());
                             try (ResultSet rs = selectPs.executeQuery()) {
                                 if (rs.next()) {
@@ -138,7 +141,8 @@ public class PostgresCDCSink extends RichSinkFunction<CDCData> {
 
                 case "replace":
                     try (PreparedStatement ps = connection.prepareStatement(
-                            "UPDATE keyword SET document = COALESCE(document, '{}'::jsonb) || ?::jsonb WHERE _id = ?")) {
+                            "UPDATE " + tableName
+                                    + " SET document = COALESCE(document, '{}'::jsonb) || ?::jsonb WHERE _id = ?")) {
 
                         String docAsString = e.fullDocument != null
                                 ? (e.fullDocument instanceof JsonNode
@@ -181,7 +185,8 @@ public class PostgresCDCSink extends RichSinkFunction<CDCData> {
 
                     try (
                             PreparedStatement ps = connection.prepareStatement(
-                                    "UPDATE keyword SET document = COALESCE(document, '{}'::jsonb) || ?::jsonb - ?::text[] WHERE _id = ?")) {
+                                    "UPDATE " + tableName
+                                            + " SET document = COALESCE(document, '{}'::jsonb) || ?::jsonb - ?::text[] WHERE _id = ?")) {
 
                         ps.setString(1, updatedFieldsJson);
                         ps.setArray(2, connection.createArrayOf("text", removed));
