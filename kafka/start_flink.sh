@@ -37,10 +37,10 @@ prepare_flink_properties() {
 }
 
 prepare_flink_properties
-for library in tere-cdc-process; do
+for library in tere-cdc-process tere-transaction-stream; do
       echo "Build library: $library"
-      mvn clean package -U -f java/tere-cdc-process/pom.xml
-      cp "$WORKDIR/java/tere-cdc-process/target/tere-cdc-process-1.0-SNAPSHOT.jar" "$WORKDIR/jar"
+      mvn clean package -U -f java/$library/pom.xml
+      cp "$WORKDIR/java/$library/target/$library-1.0-SNAPSHOT.jar" "$WORKDIR/jar/$library.jar"
       echo "Build library: $library ... done"
   done    
 echo "Stop all flink services"

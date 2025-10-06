@@ -21,7 +21,6 @@ services:
         rest.bind-address: 0.0.0.0
       - DISABLE_JEMALLOC=true
       - KAFKA_BOOTSTRAP_SERVERS=kafka-broker-1:29092
-      - KAFKA_GROUP_ID=flink-consumer-keyword
       - KAFKA_SECURITY_PROTOCOL=PLAINTEXT
       - KAFKA_SASL_MECHANISM=SCRAM-SHA-512
       - KAFKA_SASL_JAAS_CONFIG=org.apache.kafka.common.security.scram.ScramLoginModule required username="kafkabroker" password="confluent";
@@ -36,7 +35,7 @@ services:
       - ${DIR_PLUGINS}/flink-sql-connector-kafka-3.2.0-1.19.jar:/opt/flink/lib/flink-sql-connector-kafka-3.2.0-1.19.jar
       - ${DIR_PLUGINS}/flink-connector-jdbc-3.1.2-1.18.jar:/opt/flink/lib/flink-connector-jdbc-3.1.2-1.18.jar
       - ${DIR_PLUGINS}/postgresql-42.7.3.jar:/opt/flink/lib/postgresql-42.7.3.jar
-      - ${DIR_JAR}/tere-cdc-process-1.0-SNAPSHOT.jar:/opt/flink/jobs/tere-cdc-process.jar
+      - ${DIR_JAR}:/opt/flink/jobs
   flink-taskmanager:
     image: flink:1.19.1-scala_2.12
     hostname: flink-taskmanager
@@ -55,7 +54,6 @@ services:
         taskmanager.numberOfTaskSlots: 10
       - DISABLE_JEMALLOC=true
       - KAFKA_BOOTSTRAP_SERVERS=kafka-broker-1:29092
-      - KAFKA_GROUP_ID=flink-consumer-keyword
       - KAFKA_SECURITY_PROTOCOL=PLAINTEXT
       - KAFKA_SASL_MECHANISM=SCRAM-SHA-512
       - KAFKA_SASL_JAAS_CONFIG=org.apache.kafka.common.security.scram.ScramLoginModule required username="kafkabroker" password="confluent";
@@ -70,4 +68,4 @@ services:
       - ${DIR_PLUGINS}/flink-sql-connector-kafka-3.2.0-1.19.jar:/opt/flink/lib/flink-sql-connector-kafka-3.2.0-1.19.jar
       - ${DIR_PLUGINS}/flink-connector-jdbc-3.1.2-1.18.jar:/opt/flink/lib/flink-connector-jdbc-3.1.2-1.18.jar
       - ${DIR_PLUGINS}/postgresql-42.7.3.jar:/opt/flink/lib/postgresql-42.7.3.jar
-      - ${DIR_JAR}/tere-cdc-process-1.0-SNAPSHOT.jar:/opt/flink/jobs/tere-cdc-process.jar
+      - ${DIR_JAR}:/opt/flink/jobs

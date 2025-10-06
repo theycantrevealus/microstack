@@ -35,7 +35,7 @@ public class CDCPostgres {
 
                 Properties properties = new Properties();
                 properties.setProperty("bootstrap.servers", System.getenv("KAFKA_BOOTSTRAP_SERVERS"));
-                properties.setProperty("group.id", System.getenv("KAFKA_GROUP_ID"));
+                properties.setProperty("client.id", "cdc-consumer");
                 properties.setProperty("security.protocol", System.getenv("KAFKA_SECURITY_PROTOCOL"));
                 properties.setProperty("sasl.mechanism", System.getenv("KAFKA_SASL_MECHANISM"));
                 properties.setProperty("sasl.jaas.config", System.getenv("KAFKA_SASL_JAAS_CONFIG"));
@@ -50,7 +50,7 @@ public class CDCPostgres {
                 KafkaSource<String> sourceProgram = KafkaSource.<String>builder()
                                 .setBootstrapServers(System.getenv("KAFKA_BOOTSTRAP_SERVERS"))
                                 .setTopics("mongo.SLNonCore.program")
-                                .setGroupId(System.getenv("KAFKA_GROUP_ID"))
+                                .setGroupId("CDC-Program")
                                 .setProperties(properties)
                                 .setStartingOffsets(OffsetsInitializer.earliest())
                                 .setValueOnlyDeserializer(
@@ -60,7 +60,7 @@ public class CDCPostgres {
                 DataStream<String> rawEventsProgram = env.fromSource(
                                 sourceProgram,
                                 WatermarkStrategy.noWatermarks(),
-                                "Kafka Source");
+                                "Kafka Program Source");
 
                 DataStream<CDCData> eventsProgram = rawEventsProgram.map(new ParseJsonMap())
                                 .assignTimestampsAndWatermarks(WatermarkStrategy
@@ -81,7 +81,7 @@ public class CDCPostgres {
                 KafkaSource<String> sourceKeyword = KafkaSource.<String>builder()
                                 .setBootstrapServers(System.getenv("KAFKA_BOOTSTRAP_SERVERS"))
                                 .setTopics("mongo.SLNonCore.keyword")
-                                .setGroupId(System.getenv("KAFKA_GROUP_ID"))
+                                .setGroupId("CDC-Keyword")
                                 .setProperties(properties)
                                 .setStartingOffsets(OffsetsInitializer.earliest())
                                 .setValueOnlyDeserializer(
@@ -91,7 +91,7 @@ public class CDCPostgres {
                 DataStream<String> rawEventsKeyword = env.fromSource(
                                 sourceKeyword,
                                 WatermarkStrategy.noWatermarks(),
-                                "Kafka Source");
+                                "Kafka Keyword Source");
 
                 DataStream<CDCData> eventsKeyword = rawEventsKeyword.map(new ParseJsonMap())
                                 .assignTimestampsAndWatermarks(WatermarkStrategy
@@ -104,7 +104,7 @@ public class CDCPostgres {
                                 System.getenv("JDBC_USER"),
                                 System.getenv("JDBC_PASSWORD")));
 
-                env.execute("Flink Unified CDC to Postgres");
+                env.execute("CDC - MongoDB to Postgres - Program & Keyword");
         }
 
 }

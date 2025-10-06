@@ -37,7 +37,7 @@ public class PostgresCDCSink extends RichSinkFunction<CDCData> {
         super.open(parameters);
         try {
             Class.forName("org.postgresql.Driver");
-            LOG.info("PostgreSQL Driver loaded successfully via Class.forName"); // Optional log
+            LOG.info("PostgreSQL Driver loaded successfully via Class.forName");
         } catch (ClassNotFoundException ex) {
             LOG.error("PostgreSQL Driver not found on classpath: {}", ex.getMessage());
             throw new RuntimeException("Add org.postgresql:postgresql JAR to your dependencies", ex);
@@ -219,7 +219,7 @@ public class PostgresCDCSink extends RichSinkFunction<CDCData> {
             throw ex;
         } finally {
             if (!autoCommitWas) {
-                connection.setAutoCommit(autoCommitWas); // Restore original mode
+                connection.setAutoCommit(autoCommitWas);
             }
         }
 
