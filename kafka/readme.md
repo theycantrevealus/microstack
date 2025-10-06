@@ -69,7 +69,7 @@ rest.port: 9081
 rest.bind-address: 0.0.0.0
 taskmanager.numberOfTaskSlots: 10
 taskmanager.memory.process.size: 2048m
-jobmanager.memory.process.size: 1024m
+jobmanager.memory.process.size: 1280m
 blob.server.port: 6124
 query.server.port: 6125
 execution.restart-strategy: fixed-delay
@@ -1046,4 +1046,12 @@ LEFT JOIN keywords_lookup FOR SYSTEM_TIME AS OF r.event_time AS k
   ON r.keyword_id = k.keyword_id
 LEFT JOIN customers_lookup FOR SYSTEM_TIME AS OF r.event_time AS c
   ON r.msisdn = c.msisdn;
+```
+
+```sql
+CREATE TABLE public.keyword (
+	_id varchar NOT NULL,
+	"document" jsonb NULL,
+	CONSTRAINT keyword_pk PRIMARY KEY (_id)
+);
 ```
