@@ -67,14 +67,15 @@ public class TERETransaction {
                                 .map(new RedeemEnrichment(
                                                 System.getenv("JDBC_URL"),
                                                 System.getenv("JDBC_USER"),
-                                                System.getenv("JDBC_PASSWORD")));
+                                                System.getenv("JDBC_PASSWORD")))
+                                .name("Enrichment Step").disableChaining();
 
                 /*
                  * Step : Here lay the eligibility logic
                  * 
                  */
                 DataStream<DTORedeemEnriched> eligible = enriched
-                                .filter(dto -> dto.keyword != null);
+                                .filter(dto -> dto.keyword != null).name("Eligibility Filter").disableChaining();
 
                 KafkaSink<String> sink = KafkaSink.<String>builder()
                                 .setBootstrapServers(System.getenv("KAFKA_BOOTSTRAP_SERVERS"))
