@@ -69,7 +69,7 @@ rest.port: 9081
 rest.bind-address: 0.0.0.0
 taskmanager.numberOfTaskSlots: 10
 taskmanager.memory.process.size: 2048m
-jobmanager.memory.process.size: 1024m
+jobmanager.memory.process.size: 1280m
 blob.server.port: 6124
 query.server.port: 6125
 execution.restart-strategy: fixed-delay
@@ -370,6 +370,14 @@ mongosh mongodb://127.0.0.1:27117,127.0.0.1:27118/SLRevamp2 --quiet --eval 'db.k
 Compact topic need to create first so Apache-Flink can re-consume the topic to reload data on Flink.
 
 ```bash
+docker exec -e KAFKA_OPTS="" -it kafka-broker-1  kafka-topics \
+  --create \
+  --bootstrap-server localhost:29092 \
+  --topic mongo.SLNonCore.keyword \
+  --partitions 1 \
+  --replication-factor 1 \
+  --config cleanup.policy=compact
+
 docker exec -e KAFKA_OPTS="" -it kafka-broker-1  kafka-topics \
   --create \
   --bootstrap-server localhost:29092 \
@@ -1038,4 +1046,12 @@ LEFT JOIN keywords_lookup FOR SYSTEM_TIME AS OF r.event_time AS k
   ON r.keyword_id = k.keyword_id
 LEFT JOIN customers_lookup FOR SYSTEM_TIME AS OF r.event_time AS c
   ON r.msisdn = c.msisdn;
+```
+
+```sql
+CREATE TABLE public.keyword (
+	_id varchar NOT NULL,
+	"document" jsonb NULL,
+	CONSTRAINT keyword_pk PRIMARY KEY (_id)
+);
 ```

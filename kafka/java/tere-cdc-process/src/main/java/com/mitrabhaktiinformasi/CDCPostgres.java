@@ -1,94 +1,110 @@
-package com.mitrabhaktiinformasi.flinkcdc;
+package com.mitrabhaktiinformasi;
+
 import java.lang.System;
-import com.fasterxml.jackson.databind.JsonNode;
+import java.time.Duration;
+import java.util.Properties;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.apache.flink.api.common.eventtime.WatermarkStrategy;
 import org.apache.flink.api.common.functions.MapFunction;
+import org.apache.flink.api.common.serialization.SimpleStringSchema;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
-import org.apache.flink.streaming.connectors.kafka.FlinkKafkaConsumer;
-import org.apache.flink.connector.jdbc.JdbcExecutionOptions;
-import org.apache.flink.connector.jdbc.JdbcConnectionOptions;
-import org.apache.flink.connector.jdbc.JdbcSink;
-import org.apache.flink.api.common.serialization.SimpleStringSchema;
-
-import java.sql.PreparedStatement;
-import java.util.Properties;
+import org.apache.flink.connector.kafka.source.KafkaSource;
+import org.apache.flink.connector.kafka.source.enumerator.initializer.OffsetsInitializer;
 
 public class CDCPostgres {
 
-    public static class KeywordEvent {
-        public String id;
-        public String document;
-        public String operationType;
-        public KeywordEvent() {}
-    }
+        public static class ParseJsonMap implements MapFunction<String, CDCData> {
+                private static final ObjectMapper mapper = new ObjectMapper();
 
-    public static class ParseJsonMap implements MapFunction<String, KeywordEvent> {
-        private static final ObjectMapper mapper = new ObjectMapper();
-        @Override
-        public KeywordEvent map(String value) throws Exception {
-            JsonNode node = mapper.readTree(value);
-            KeywordEvent event = new KeywordEvent();
-            event.id = node.path("documentKey").path("_id").path("$oid").asText();
-            JsonNode fullDoc = node.path("fullDocument");
-            event.document = fullDoc.isMissingNode() ? null : fullDoc.toString();
-            event.operationType = node.path("operationType").asText();
-            return event;
+                @Override
+                public CDCData map(String value) throws Exception {
+                        CDCData data = mapper.readValue(value, CDCData.class);
+                        data.resolveEventTime();
+                        return data;
+                }
         }
-    }
 
-    public static void main(String[] args) throws Exception {
-        final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
-        env.setParallelism(1);
+        /**
+         * @param args
+         * @throws Exception
+         */
+        public static void main(String[] args) throws Exception {
+                final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+                env.setParallelism(1);
 
-        Properties properties = new Properties();
-        properties.setProperty("bootstrap.servers", System.getenv("KAFKA_BOOTSTRAP_SERVERS"));
-        properties.setProperty("group.id", System.getenv("KAFKA_GROUP_ID"));
-        properties.setProperty("security.protocol", System.getenv("KAFKA_SECURITY_PROTOCOL"));
-        properties.setProperty("sasl.mechanism", System.getenv("KAFKA_SASL_MECHANISM"));
-        properties.setProperty("sasl.jaas.config", System.getenv("KAFKA_SASL_JAAS_CONFIG"));
-        properties.setProperty("ssl.truststore.location", System.getenv("KAFKA_SSL_TRUSTSTORE_LOCATION"));
-        properties.setProperty("ssl.truststore.password", System.getenv("KAFKA_SSL_TRUSTSTORE_PASSWORD"));
-        properties.setProperty("ssl.endpoint.identification.algorithm", "");
+                Properties properties = new Properties();
+                properties.setProperty("bootstrap.servers", System.getenv("KAFKA_BOOTSTRAP_SERVERS"));
+                properties.setProperty("client.id", "cdc-consumer");
+                properties.setProperty("security.protocol", System.getenv("KAFKA_SECURITY_PROTOCOL"));
+                properties.setProperty("sasl.mechanism", System.getenv("KAFKA_SASL_MECHANISM"));
+                properties.setProperty("sasl.jaas.config", System.getenv("KAFKA_SASL_JAAS_CONFIG"));
+                properties.setProperty("ssl.truststore.location", System.getenv("KAFKA_SSL_TRUSTSTORE_LOCATION"));
+                properties.setProperty("ssl.truststore.password", System.getenv("KAFKA_SSL_TRUSTSTORE_PASSWORD"));
+                properties.setProperty("ssl.endpoint.identification.algorithm", "");
+                /*
+                 * ======================================================================
+                 * Sink Program
+                 * ======================================================================
+                 */
+                KafkaSource<String> sourceProgram = KafkaSource.<String>builder()
+                                .setBootstrapServers(System.getenv("KAFKA_BOOTSTRAP_SERVERS"))
+                                .setTopics("mongo.SLNonCore.program")
+                                .setGroupId("CDC-Program")
+                                .setProperties(properties)
+                                .setStartingOffsets(OffsetsInitializer.earliest())
+                                .setValueOnlyDeserializer(
+                                                new SimpleStringSchema())
+                                .build();
 
-        FlinkKafkaConsumer<String> kafkaConsumer = new FlinkKafkaConsumer<>(
-                "mongo.SLNonCore.keyword",
-                new SimpleStringSchema(),
-                properties
-        );
-        kafkaConsumer.setStartFromEarliest();
-        // kafkaConsumer.setCommitOffsetsOnCheckpoints(true);
+                DataStream<String> rawEventsProgram = env.fromSource(
+                                sourceProgram,
+                                WatermarkStrategy.noWatermarks(),
+                                "Kafka Program Source");
 
-        DataStream<KeywordEvent> events = env.addSource(kafkaConsumer).map(new ParseJsonMap());
+                DataStream<CDCData> eventsProgram = rawEventsProgram.map(new ParseJsonMap())
+                                .assignTimestampsAndWatermarks(WatermarkStrategy
+                                                .<CDCData>forBoundedOutOfOrderness(Duration.ofSeconds(5))
+                                                .withTimestampAssigner((event, ts) -> event.eventTime));
 
-        JdbcConnectionOptions jdbcOptions = new JdbcConnectionOptions.JdbcConnectionOptionsBuilder()
-                .withUrl("jdbc:postgresql://host.docker.internal:5432/TERE")
-                .withDriverName("org.postgresql.Driver")
-                .withUsername("tere")
-                .withPassword("mypassword")
-                .build();
+                eventsProgram.addSink(new PostgresCDCSink(
+                                "program",
+                                System.getenv("JDBC_URL"),
+                                System.getenv("JDBC_USER"),
+                                System.getenv("JDBC_PASSWORD")));
 
-        events.addSink(JdbcSink.sink(
-                "INSERT INTO keyword (_id, document) VALUES (?, ?) " +
-                        "ON CONFLICT (_id) DO UPDATE SET document = EXCLUDED.document",
-                (PreparedStatement ps, KeywordEvent event) -> {
-                    if ("delete".equals(event.operationType)) {
-                        ps.clearParameters();
-                        ps.setString(1, event.id);
-                        ps.executeUpdate(); // Execute DELETE separately
-                    } else {
-                        ps.setString(1, event.id);
-                        ps.setString(2, event.document);
-                        ps.executeUpdate();
-                    }
-                },
-                new JdbcExecutionOptions.Builder()
-                        .withBatchSize(500)
-                        .withBatchIntervalMs(200)
-                        .build(),
-                jdbcOptions
-        ));
+                /*
+                 * ======================================================================
+                 * Sink Keyword
+                 * ======================================================================
+                 */
+                KafkaSource<String> sourceKeyword = KafkaSource.<String>builder()
+                                .setBootstrapServers(System.getenv("KAFKA_BOOTSTRAP_SERVERS"))
+                                .setTopics("mongo.SLNonCore.keyword")
+                                .setGroupId("CDC-Keyword")
+                                .setProperties(properties)
+                                .setStartingOffsets(OffsetsInitializer.earliest())
+                                .setValueOnlyDeserializer(
+                                                new SimpleStringSchema())
+                                .build();
 
-        env.execute("Flink Unified CDC to Postgres");
-    }
+                DataStream<String> rawEventsKeyword = env.fromSource(
+                                sourceKeyword,
+                                WatermarkStrategy.noWatermarks(),
+                                "Kafka Keyword Source");
+
+                DataStream<CDCData> eventsKeyword = rawEventsKeyword.map(new ParseJsonMap())
+                                .assignTimestampsAndWatermarks(WatermarkStrategy
+                                                .<CDCData>forBoundedOutOfOrderness(Duration.ofSeconds(5))
+                                                .withTimestampAssigner((event, ts) -> event.eventTime));
+
+                eventsKeyword.addSink(new PostgresCDCSink(
+                                "keyword",
+                                System.getenv("JDBC_URL"),
+                                System.getenv("JDBC_USER"),
+                                System.getenv("JDBC_PASSWORD")));
+
+                env.execute("CDC - MongoDB to Postgres - Program & Keyword");
+        }
+
 }

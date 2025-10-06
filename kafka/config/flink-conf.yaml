@@ -1,19 +1,11 @@
 blob.server.port: 6124
+rest.port: 9081
 taskmanager.memory.process.size: 2048m
-env.java.opts.jobmanager: "-Dkafka.bootstrap.servers=kafka-broker-1:29092"
 execution.restart-strategy.fixed-delay.attempts: 3
 rest.flamegraph.enabled: true
-env.java.opts: "-Dkafka.bootstrap.servers=kafka-broker-1:29092 -Dsome.other.prop=value"
 jobmanager.rpc.address: flink-jobmanager
-jobmanager.memory.process.size: 3g
-jobmanager.rpc.port: 6123
-query.server.port: 6125
-rest.bind-address: 0.0.0.0
-rest.port: 9081
-execution.restart-strategy.fixed-delay.delay: 10s
 taskmanager.numberOfTaskSlots: 10
-rest.address: flink-jobmanager
-execution.restart-strategy: fixed-delay
-env.java.opts.taskmanager: "-Dkafka.bootstrap.servers=kafka-broker-1:29092"
+jobmanager.rpc.port: 6123
 jobmanager.memory.heap.size: 1024m
-jobmanager.memory.flink.size: 2300m
+rest.bind-address: 0.0.0.0
+jobmanager.memory.flink.size: 1024m

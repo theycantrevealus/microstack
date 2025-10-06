@@ -31,6 +31,10 @@ case "$MODE" in
     ./start_postgres.sh
     ./start_flink_cli_client.sh
     ;;
+  flink-job)
+    echo "Starting Flink Jobs"
+    ./start.job.sh
+    ;;
   *)
     echo "❌ Error: Unknown mode '$MODE'. Allowed values: dev | prod"
     exit 1
