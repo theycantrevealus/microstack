@@ -42,69 +42,40 @@ public class CDCPostgres {
                 properties.setProperty("ssl.truststore.location", System.getenv("KAFKA_SSL_TRUSTSTORE_LOCATION"));
                 properties.setProperty("ssl.truststore.password", System.getenv("KAFKA_SSL_TRUSTSTORE_PASSWORD"));
                 properties.setProperty("ssl.endpoint.identification.algorithm", "");
-                /*
-                 * ======================================================================
-                 * Sink Program
-                 * ======================================================================
-                 */
-                KafkaSource<String> sourceProgram = KafkaSource.<String>builder()
-                                .setBootstrapServers(System.getenv("KAFKA_BOOTSTRAP_SERVERS"))
-                                .setTopics("mongo.SLNonCore.program")
-                                .setGroupId("CDC-Program")
-                                .setProperties(properties)
+
+                buildStream(env, "mongo.SLNonCore.systemconfigs", "CDC-SystemConfig", "systemconfigs", properties);
+                buildStream(env, "mongo.SLNonCore.lovs", "CDC-LOV", "lovs", properties);
+                buildStream(env, "mongo.SLNonCore.notificationtemplates", "CDC-NotificationTemplate",
+                                "notificationtemplates", properties);
+                buildStream(env, "mongo.SLNonCore.programs", "CDC-Program", "programs", properties);
+                buildStream(env, "mongo.SLNonCore.keywords", "CDC-Keyword", "keywords", properties);
+                buildStream(env, "mongo.SLNonCore.donations", "CDC-Donation", "donations", properties);
+
+                env.execute("CDC - MongoDB to Postgres - Master Data");
+        }
+
+        private static void buildStream(StreamExecutionEnvironment env, String topic, String groupId, String sinkTable,
+                        Properties properties) {
+
+                KafkaSource<String> source = KafkaSource.<String>builder()
+                                .setBootstrapServers(properties.getProperty("bootstrap.servers")).setTopics(topic)
+                                .setGroupId(groupId).setProperties(properties)
                                 .setStartingOffsets(OffsetsInitializer.earliest())
-                                .setValueOnlyDeserializer(
-                                                new SimpleStringSchema())
-                                .build();
+                                .setValueOnlyDeserializer(new SimpleStringSchema()).build();
 
-                DataStream<String> rawEventsProgram = env.fromSource(
-                                sourceProgram,
-                                WatermarkStrategy.noWatermarks(),
-                                "Kafka Program Source");
+                DataStream<String> rawEvents = env
+                                .fromSource(source, WatermarkStrategy.noWatermarks(), "Kafka " + topic + " Source")
+                                .name(sinkTable + " Source");
 
-                DataStream<CDCData> eventsProgram = rawEventsProgram.map(new ParseJsonMap())
+                DataStream<CDCData> events = rawEvents.map(new ParseJsonMap())
                                 .assignTimestampsAndWatermarks(WatermarkStrategy
                                                 .<CDCData>forBoundedOutOfOrderness(Duration.ofSeconds(5))
-                                                .withTimestampAssigner((event, ts) -> event.eventTime));
+                                                .withTimestampAssigner((event, ts) -> event.eventTime))
+                                .name(groupId + " Map");
 
-                eventsProgram.addSink(new PostgresCDCSink(
-                                "program",
-                                System.getenv("JDBC_URL"),
-                                System.getenv("JDBC_USER"),
-                                System.getenv("JDBC_PASSWORD")));
-
-                /*
-                 * ======================================================================
-                 * Sink Keyword
-                 * ======================================================================
-                 */
-                KafkaSource<String> sourceKeyword = KafkaSource.<String>builder()
-                                .setBootstrapServers(System.getenv("KAFKA_BOOTSTRAP_SERVERS"))
-                                .setTopics("mongo.SLNonCore.keyword")
-                                .setGroupId("CDC-Keyword")
-                                .setProperties(properties)
-                                .setStartingOffsets(OffsetsInitializer.earliest())
-                                .setValueOnlyDeserializer(
-                                                new SimpleStringSchema())
-                                .build();
-
-                DataStream<String> rawEventsKeyword = env.fromSource(
-                                sourceKeyword,
-                                WatermarkStrategy.noWatermarks(),
-                                "Kafka Keyword Source");
-
-                DataStream<CDCData> eventsKeyword = rawEventsKeyword.map(new ParseJsonMap())
-                                .assignTimestampsAndWatermarks(WatermarkStrategy
-                                                .<CDCData>forBoundedOutOfOrderness(Duration.ofSeconds(5))
-                                                .withTimestampAssigner((event, ts) -> event.eventTime));
-
-                eventsKeyword.addSink(new PostgresCDCSink(
-                                "keyword",
-                                System.getenv("JDBC_URL"),
-                                System.getenv("JDBC_USER"),
-                                System.getenv("JDBC_PASSWORD")));
-
-                env.execute("CDC - MongoDB to Postgres - Program & Keyword");
+                events.addSink(new PostgresCDCSink(sinkTable, System.getenv("JDBC_URL"), System.getenv("JDBC_USER"),
+                                System.getenv("JDBC_PASSWORD"))).name(groupId + " Map");
+                ;
         }
 
 }

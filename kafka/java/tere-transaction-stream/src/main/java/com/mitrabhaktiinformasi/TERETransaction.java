@@ -1,6 +1,8 @@
 package com.mitrabhaktiinformasi;
 
 import java.time.Duration;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Properties;
 
 import org.apache.flink.api.common.eventtime.WatermarkStrategy;
@@ -72,10 +74,37 @@ public class TERETransaction {
 
                 /*
                  * Step : Here lay the eligibility logic
-                 * 
+                 * - Check payload completeness
+                 * - Validate msisdn format
+                 * - Check [NO_RULE]
+                 * - Check if is [KEYWORD_REGISTRATION]
+                 * - Check if program and keyword is approved
                  */
+                // DataStream<DTORedeemEnriched> eligible = enriched
+                // .filter(dto -> dto.keyword != null).name("Eligibility
+                // Filter").disableChaining();
                 DataStream<DTORedeemEnriched> eligible = enriched
-                                .filter(dto -> dto.keyword != null).name("Eligibility Filter").disableChaining();
+                                .filter((dto) -> {
+                                        Boolean isEligible = false;
+
+                                        Boolean isNoRule = false;
+
+                                        // Check payload completeness
+                                        if (dto.keyword == null || dto.program == null) {
+                                                isEligible = false;
+                                                dto.setEligibility(false, "INCOMPLETE_PAYLOAD");
+                                        }
+
+                                        // Validate msisdn format
+                                        else if (dto.customer == null || !dto.customer.has("msisdn")
+                                                        || dto.customer.get("msisdn").asText().length() < 10) {
+                                                isEligible = false;
+                                                dto.setEligibility(false, "INVALID_MSISDN");
+                                        }
+
+                                        return isEligible;
+
+                                }).name("Eligibility Filter").disableChaining();
 
                 KafkaSink<String> sink = KafkaSink.<String>builder()
                                 .setBootstrapServers(System.getenv("KAFKA_BOOTSTRAP_SERVERS"))
@@ -97,8 +126,15 @@ public class TERETransaction {
                 DataStream<String> jsonStream = eligible.map(new MapFunction<DTORedeemEnriched, String>() {
                         @Override
                         public String map(DTORedeemEnriched dto) throws Exception {
+                                Map<String, Object> payload = new LinkedHashMap<>();
+                                payload.put("keyword", dto.keyword);
+                                payload.put("program", dto.program);
+                                payload.put("isEligible", dto.isEligible);
+                                payload.put("reason", dto.reason);
+                                payload.put("timestamp", System.currentTimeMillis());
+
                                 ObjectMapper mapper = new ObjectMapper();
-                                return mapper.writeValueAsString(dto);
+                                return mapper.writeValueAsString(payload);
                         }
                 });
 

@@ -3,7 +3,7 @@ taskmanager.memory.process.size: 2048m
 execution.restart-strategy.fixed-delay.attempts: 3
 rest.flamegraph.enabled: true
 jobmanager.rpc.address: flink-jobmanager
-jobmanager.memory.process.size: 2048m
+jobmanager.memory.process.size: 1280m
 jobmanager.rpc.port: 6123
 query.server.port: 6125
 rest.bind-address: 0.0.0.0

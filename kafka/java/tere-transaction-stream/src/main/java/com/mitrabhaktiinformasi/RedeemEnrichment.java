@@ -55,7 +55,6 @@ public class RedeemEnrichment extends RichMapFunction<DTORedeem, DTORedeemEnrich
                 "SELECT k._id, k.document AS keyword_doc, p.document AS program_doc FROM keyword k JOIN program p ON (k.document->'eligibility'->'program_id'->'_id'->>'$oid') = p._id WHERE k.document->'eligibility'->>'name' = ?");
 
         ps.setString(1, value.data.keyword.toString());
-
         ps.setString(1, value.data.keyword.toString());
 
         try (ResultSet rs = ps.executeQuery()) {
@@ -66,7 +65,7 @@ public class RedeemEnrichment extends RichMapFunction<DTORedeem, DTORedeemEnrich
                 return new DTORedeemEnriched(
                         keywordNode,
                         programNode,
-                        null); // <<== Phung mau g y? Wkwkwkwkwk
+                        null); // TODO : <<== Phung mau g y? Wkwkwkwkwk
             } else {
                 LOG.warn("No data found for Keyword={}", value.data.keyword.toString());
                 return new DTORedeemEnriched(null, null, null);

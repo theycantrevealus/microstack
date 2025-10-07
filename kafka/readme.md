@@ -221,8 +221,57 @@ curl -X POST -H "Content-Type: application/json" \
       "value.converter": "org.apache.kafka.connect.storage.StringConverter",
       "key.converter.schemas.enable": "false",
       "value.converter.schemas.enable": "false",
-
       "value.converter.string.encoding": "UTF-8"
+    }
+  }' http://localhost:8083/connectors
+```
+
+```bash
+curl -X POST -H "Content-Type: application/json" \
+  --data '{
+    "name": "mongo.SLNonCore.program",
+    "config": {
+      "connector.class": "com.mongodb.kafka.connect.MongoSourceConnector",
+      "tasks.max": "1",
+      "connection.uri": "mongodb://host.docker.internal:27117,host.docker.internal:27118",
+      "database": "SLNonCore",
+      "collection": "program",
+      "topic.prefix": "mongo",
+      "output.format.value": "json",
+      "key.converter": "org.apache.kafka.connect.storage.StringConverter",
+      "value.converter": "org.apache.kafka.connect.storage.StringConverter",
+      "key.converter.schemas.enable": "false",
+      "value.converter.schemas.enable": "false",
+      "value.converter.string.encoding": "UTF-8"
+    }
+  }' http://localhost:8083/connectors
+```
+
+```bash
+curl -X POST -H "Content-Type: application/json" \
+  --data '{
+    "name": "mongo.SLNonCore.program",
+    "config": {
+      "connector.class": "com.mongodb.kafka.connect.MongoSourceConnector",
+      "tasks.max": "1",
+      "connection.uri": "mongodb://host.docker.internal:27117,host.docker.internal:27118",
+      "database": "SLNonCore",
+      "collection": "program",
+      "topic.prefix": "mongo",
+      "output.format.value": "json",
+      "key.converter": "org.apache.kafka.connect.json.JsonConverter",
+      "value.converter": "org.apache.kafka.connect.json.JsonConverter",
+      "key.converter.schemas.enable": "false",
+      "value.converter.schemas.enable": "false",
+      "transforms": "insertCollection",
+      "transforms.insertCollection.type": "org.apache.kafka.connect.transforms.InsertField$Key",
+      "transforms.insertCollection.static.field": "collection",
+      "transforms.insertCollection.static.value": "program",
+      "mongodb.connection.connect.timeout.ms": "10000",
+      "mongodb.connection.socket.timeout.ms": "60000",
+      "mongodb.change.stream.full.document": "updateLookup",
+      "poll.max.batch.size": "1024",
+      "mongodb.server.selection.timeout.ms": "5000"
     }
   }' http://localhost:8083/connectors
 ```
